@@ -1,3 +1,3 @@
 # kya-ray
 
-A contextual understanding layer that helps you understand what you're looking at, without forcing you to leave what you're doing.
+A desktop-first tool that lets people select or inspect something on their screen and receive a short, context-aware explanation in a floating bubble. It offers relevant follow-up actions based on what was selected and can save useful explanations for later.
