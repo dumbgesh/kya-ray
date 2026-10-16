@@ -1,2 +1,3 @@
 # kya-ray
-A contextual understanding layer for your digital world.
+
+a contextual understanding layer that helps you understand what you're looking at, without forcing you to leave what you're doing.
