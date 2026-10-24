@@ -13,3 +13,11 @@
 - Handles cases where no text is selected.
 - Attempts to restore the previous clipboard text.
 - Status: Working and manually tested.
+
+## V3 — Basic Response Window
+- Displays captured text in a lightweight Tkinter desktop window.
+- Shows a clear notice when no text is selected.
+- Uses a thread-safe queue to ensure all UI updates run on the main Tkinter thread.
+- Includes a 'Close' button to dismiss the window and standard 'X'/Esc controls to exit.
+- Status: Implemented; automated tests passed, ready for manual testing.
+
