@@ -27,7 +27,17 @@
 - Verified local HTTP API is responsive (`http://127.0.0.1:11434/` returns HTTP 200 "Ollama is running").
 - Successfully downloaded and verified model `llama3.2:1b` (1.3 GB).
 - Executed successful test inference via local HTTP API (`/api/generate`).
-- Status: Completed and verified; ready for integration into prototype.
+- Status: Completed and verified.
+
+## V5 — AI Explanation Integration
+- Integrated Ollama local inference directly into `prototype/main.py`.
+- Uses Python's standard library `urllib.request` and `json` (zero extra dependencies).
+- Calls local endpoint `http://127.0.0.1:11434/api/generate` with model `llama3.2:1b` (`stream: false`).
+- Prompt requests concise, beginner-friendly explanations (2-3 sentences max).
+- Fully non-blocking: network I/O executes in background thread; UI updates pass safely through `ui_queue`.
+- Handles empty selections, network timeouts (30s), missing models (404), and unavailable Ollama service with friendly UI states.
+- Status: Implemented; automated unit tests passed; ready for manual Windows testing.
+
 
 
 
