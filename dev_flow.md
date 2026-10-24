@@ -21,3 +21,13 @@
 - Includes a 'Close' button to dismiss the window and standard 'X'/Esc controls to exit.
 - Status: Implemented; automated tests passed, ready for manual testing.
 
+## V4 — Prepare Local AI
+- Verified Ollama installation (Version 0.40.10) in `%LOCALAPPDATA%\Programs\Ollama`.
+- Verified Ollama background service is active (`ollama.exe` and `ollama app.exe` running).
+- Verified local HTTP API is responsive (`http://127.0.0.1:11434/` returns HTTP 200 "Ollama is running").
+- Queried local models (`/api/tags`): API is live; 0 local models currently downloaded.
+- Preserved V1–V3 codebase without modifications.
+- Status: Ollama operational; awaiting model selection approval to perform test inference.
+
+
+
