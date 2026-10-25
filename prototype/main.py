@@ -1,3 +1,5 @@
+import ctypes
+from ctypes import wintypes
 import json
 import queue
 import threading
@@ -34,6 +36,30 @@ ui_queue = queue.Queue()
 
 # Global reference to the keyboard listener
 keyboard_listener = None
+
+
+# ==============================================================================
+# Windows Screen & Cursor Helper (ctypes)
+# ==============================================================================
+
+class POINT(ctypes.Structure):
+    """Win32 POINT structure representing (x, y) screen coordinates."""
+    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+
+def get_mouse_position():
+    """
+    Retrieves the current global mouse cursor position on Windows.
+    Returns:
+        (x, y) tuple if successful, or None if inaccessible (e.g., non-interactive session).
+    """
+    try:
+        pt = POINT()
+        if ctypes.windll.user32.GetCursorPos(ctypes.byref(pt)):
+            return pt.x, pt.y
+    except Exception:
+        pass
+    return None
 
 
 # ==============================================================================
@@ -98,95 +124,243 @@ def request_ai_explanation(text):
 
 
 # ==============================================================================
-# GUI: Response Window (Tkinter)
+# GUI: Floating Speech-Bubble Window (Tkinter)
 # ==============================================================================
 
-class ResponseWindow:
+class FloatingBubbleWindow:
     """
-    Tkinter desktop window that displays captured text and AI explanations.
-    All widget creation and updates run strictly on the main UI thread.
+    Compact, floating speech-bubble interface for Kya-Ray.
+
+    Key characteristics:
+    1. Borderless floating card styling via root.overrideredirect(True).
+    2. Pinned permanently above normal application windows (including VS Code)
+       via root.attributes("-topmost", True).
+    3. Context-aware positioning near the active mouse pointer, clamped to screen edges.
+    4. Draggable header allowing users to easily reposition the bubble anywhere.
+    5. Minimalist header with '✕' dismiss button, status badge, and bottom close control.
+    6. Thread-safe updates from background inference via ui_queue.
     """
 
     def __init__(self, root):
         self.root = root
         self.root.title("Kya-Ray")
-        self.root.geometry("520x360")
-        self.root.minsize(380, 240)
 
-        # Main frame with margins
-        frame = tk.Frame(root, padx=12, pady=12)
-        frame.pack(fill=tk.BOTH, expand=True)
+        # Dimensions of the compact floating bubble
+        self.width = 440
+        self.height = 290
 
-        # Header label
-        self.header_label = tk.Label(
-            frame,
-            text="Kya-Ray AI",
-            font=("Segoe UI", 11, "bold"),
-            anchor="w",
+        # Enable borderless floating window and topmost pinning
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
+
+        # Variables to track window dragging
+        self._drag_start_x = 0
+        self._drag_start_y = 0
+
+        # Position bubble initially
+        self.position_bubble()
+
+        # Outer frame with a glowing accent border (slate/sky-blue palette)
+        self.outer_frame = tk.Frame(
+            root,
+            bg="#1e293b",               # Slate-800 dark background
+            highlightbackground="#38bdf8", # Sky blue glowing 1px border
+            highlightcolor="#38bdf8",
+            highlightthickness=1,
+            padx=0,
+            pady=0,
         )
-        self.header_label.pack(fill=tk.X, pady=(0, 6))
+        self.outer_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Scrollable text area to display selected text and explanations
+        # ----------------------------------------------------------------------
+        # Header bar (Draggable)
+        # ----------------------------------------------------------------------
+        self.header_frame = tk.Frame(
+            self.outer_frame,
+            bg="#0f172a",               # Slate-900 contrasting header
+            padx=10,
+            pady=6,
+            cursor="fleur",             # Move cursor to signal draggability
+        )
+        self.header_frame.pack(fill=tk.X)
+
+        # Brand / Title label
+        self.title_label = tk.Label(
+            self.header_frame,
+            text="💬 Kya-Ray",
+            font=("Segoe UI", 10, "bold"),
+            fg="#38bdf8",
+            bg="#0f172a",
+            cursor="fleur",
+        )
+        self.title_label.pack(side=tk.LEFT)
+
+        # Status badge indicator
+        self.header_status = tk.Label(
+            self.header_frame,
+            text="Ready",
+            font=("Segoe UI", 9),
+            fg="#94a3b8",
+            bg="#0f172a",
+            cursor="fleur",
+        )
+        self.header_status.pack(side=tk.LEFT, padx=(10, 0))
+
+        # Close button ('✕')
+        self.close_x_btn = tk.Label(
+            self.header_frame,
+            text=" ✕ ",
+            font=("Segoe UI", 10, "bold"),
+            fg="#94a3b8",
+            bg="#0f172a",
+            cursor="hand2",
+        )
+        self.close_x_btn.pack(side=tk.RIGHT)
+        self.close_x_btn.bind("<Button-1>", lambda e: self.hide_window())
+        self.close_x_btn.bind("<Enter>", lambda e: self.close_x_btn.config(fg="#f87171"))
+        self.close_x_btn.bind("<Leave>", lambda e: self.close_x_btn.config(fg="#94a3b8"))
+
+        # Bind mouse drag events to the header elements
+        for widget in (self.header_frame, self.title_label, self.header_status):
+            widget.bind("<Button-1>", self.start_drag)
+            widget.bind("<B1-Motion>", self.do_drag)
+
+        # ----------------------------------------------------------------------
+        # Body frame (Text Area)
+        # ----------------------------------------------------------------------
+        body_frame = tk.Frame(self.outer_frame, bg="#1e293b", padx=10, pady=8)
+        body_frame.pack(fill=tk.BOTH, expand=True)
+
         self.text_area = scrolledtext.ScrolledText(
-            frame,
+            body_frame,
             wrap=tk.WORD,
             font=("Segoe UI", 10),
+            bg="#0f172a",
+            fg="#f8fafc",
+            insertbackground="#f8fafc",
+            selectbackground="#0284c7",
+            relief=tk.FLAT,
             padx=8,
             pady=8,
         )
         self.text_area.pack(fill=tk.BOTH, expand=True)
         self.text_area.insert(
             tk.END,
-            "Select text in any application and press Ctrl + Shift + J to receive an AI explanation.\n\nPress Esc to exit.",
+            "Select text in any window and press Ctrl + Shift + J.\n\n"
+            "Kya-Ray will provide a concise explanation in this floating bubble.\n\n"
+            "Press Esc to exit the application.",
         )
         self.text_area.config(state=tk.DISABLED)
 
-        # Bottom row for status message and close button
-        bottom_frame = tk.Frame(frame, pady=6)
-        bottom_frame.pack(fill=tk.X)
+        # ----------------------------------------------------------------------
+        # Footer frame (Minimal Controls)
+        # ----------------------------------------------------------------------
+        footer_frame = tk.Frame(self.outer_frame, bg="#0f172a", padx=10, pady=5)
+        footer_frame.pack(fill=tk.X)
 
-        self.status_label = tk.Label(
-            bottom_frame,
-            text="Ready (Ctrl + Shift + J)",
-            font=("Segoe UI", 9),
-            fg="#555555",
-            anchor="w",
+        self.footer_hint = tk.Label(
+            footer_frame,
+            text="Drag header to move • Esc to exit",
+            font=("Segoe UI", 8),
+            fg="#64748b",
+            bg="#0f172a",
         )
-        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.footer_hint.pack(side=tk.LEFT)
 
-        self.close_btn = tk.Button(
-            bottom_frame,
+        self.dismiss_btn = tk.Button(
+            footer_frame,
             text="Close",
-            width=10,
+            font=("Segoe UI", 9),
+            bg="#334155",
+            fg="#f8fafc",
+            activebackground="#475569",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=10,
+            pady=1,
+            cursor="hand2",
             command=self.hide_window,
         )
-        self.close_btn.pack(side=tk.RIGHT)
-
-        # Handle window 'X' button
-        self.root.protocol("WM_DELETE_WINDOW", self.on_exit)
+        self.dismiss_btn.pack(side=tk.RIGHT)
 
         # Start checking the queue for events sent from background threads
         self.check_queue()
 
+    def start_drag(self, event):
+        """Records initial pointer offset when user starts dragging the header."""
+        self._drag_start_x = event.x
+        self._drag_start_y = event.y
+
+    def do_drag(self, event):
+        """Moves the window in real-time as the user drags with mouse button held."""
+        deltax = event.x - self._drag_start_x
+        deltay = event.y - self._drag_start_y
+        new_x = self.root.winfo_x() + deltax
+        new_y = self.root.winfo_y() + deltay
+        self.root.geometry(f"+{new_x}+{new_y}")
+
+    def position_bubble(self):
+        """
+        Positions the floating speech bubble on screen.
+        1. Attempts to anchor near active mouse cursor (+15px, +15px).
+        2. Clamps the coordinates so the bubble never overflows monitor edges or taskbars.
+        3. Falls back to a clean upper-center placement if cursor position is unavailable.
+        """
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+
+        # Sensible fallback: horizontally centered in upper third of primary monitor
+        target_x = max(20, (screen_w - self.width) // 2)
+        target_y = max(40, (screen_h - self.height) // 3)
+
+        # Attempt cursor-based positioning
+        mouse_pos = get_mouse_position()
+        if mouse_pos:
+            mx, my = mouse_pos
+            if 0 <= mx < screen_w and 0 <= my < screen_h:
+                target_x = mx + 15
+                target_y = my + 15
+
+        # Clamp within visible screen boundaries
+        if target_x + self.width > screen_w - 15:
+            target_x = screen_w - self.width - 15
+        if target_y + self.height > screen_h - 45:
+            # If bottom would overflow, position above cursor if space permits
+            if mouse_pos and (mouse_pos[1] - self.height - 15) >= 15:
+                target_y = mouse_pos[1] - self.height - 15
+            else:
+                target_y = screen_h - self.height - 45
+
+        if target_x < 15:
+            target_x = 15
+        if target_y < 15:
+            target_y = 15
+
+        self.root.geometry(f"{self.width}x{self.height}+{target_x}+{target_y}")
+
     def _bring_to_front(self):
-        """Helper to ensure the window is visible and elevated above other windows."""
+        """
+        Ensures the floating bubble is visible and stays permanently pinned above
+        normal application windows (including VS Code).
+        Note: We NEVER reset -topmost to False, ensuring it floats reliably.
+        """
         self.root.deiconify()
-        self.root.lift()
+        self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.after_idle(self.root.attributes, "-topmost", False)
+        self.root.lift()
 
     def show_generating(self, selected_text):
         """Displays generating state while Ollama processes the text."""
+        self.position_bubble()
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
 
-        self.header_label.config(text="Generating Explanation...", fg="#2980b9")
-        self.status_label.config(text=f"Thinking with {OLLAMA_MODEL}...")
+        self.header_status.config(text=f"Thinking with {OLLAMA_MODEL}...", fg="#38bdf8")
 
-        preview = selected_text if len(selected_text) <= 300 else selected_text[:300] + "..."
+        preview = selected_text if len(selected_text) <= 220 else selected_text[:220] + "..."
         content = (
             f"Selected Text:\n\"{preview}\"\n\n"
-            f"Generating concise explanation using local AI ({OLLAMA_MODEL}). Please wait a moment..."
+            f"Thinking with local AI ({OLLAMA_MODEL}). Please wait a moment..."
         )
         self.text_area.insert(tk.END, content)
         self.text_area.config(state=tk.DISABLED)
@@ -198,8 +372,7 @@ class ResponseWindow:
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
 
-        self.header_label.config(text="AI Explanation", fg="#27ae60")
-        self.status_label.config(text="Explanation ready")
+        self.header_status.config(text="Ready", fg="#4ade80")
 
         content = (
             f"Explanation:\n{explanation}\n\n"
@@ -216,8 +389,7 @@ class ResponseWindow:
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
 
-        self.header_label.config(text="Explanation Failed", fg="#c0392b")
-        self.status_label.config(text="Failed to generate explanation")
+        self.header_status.config(text="Explanation Failed", fg="#f87171")
 
         content = (
             f"Could not generate an explanation.\n\n"
@@ -232,14 +404,15 @@ class ResponseWindow:
 
     def show_no_selection(self):
         """Displays notice when user triggered the shortcut with nothing selected."""
+        self.position_bubble()
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
 
-        self.header_label.config(text="No Selection Detected", fg="#e67e22")
-        self.status_label.config(text="No text selected")
+        self.header_status.config(text="No Selection", fg="#fbbf24")
         self.text_area.insert(
             tk.END,
-            "No text was selected.\n\nPlease highlight some text in any window and press Ctrl + Shift + J again.",
+            "No text was selected.\n\n"
+            "Please highlight some text in any window and press Ctrl + Shift + J again.",
         )
         self.text_area.config(state=tk.DISABLED)
 
@@ -253,12 +426,12 @@ class ResponseWindow:
             self.show_no_selection()
 
     def hide_window(self):
-        """Hides the window when the user clicks 'Close'."""
+        """Hides the bubble when dismissed by the user."""
         self.root.withdraw()
-        print("Window dismissed. Press Ctrl + Shift + J to show it again, or Esc to exit.", flush=True)
+        print("Bubble dismissed. Press Ctrl + Shift + J to show it again, or Esc to exit.", flush=True)
 
     def on_exit(self):
-        """Cleanly terminates the application when the window is closed."""
+        """Cleanly terminates the application when exiting."""
         print("\nWindow closed. Exiting...", flush=True)
         if keyboard_listener and keyboard_listener.is_alive():
             keyboard_listener.stop()
@@ -289,6 +462,10 @@ class ResponseWindow:
             print(f"[Warning] Error polling UI queue: {error}", flush=True)
 
         self.root.after(50, self.check_queue)
+
+
+# Alias for backward compatibility with existing tests
+ResponseWindow = FloatingBubbleWindow
 
 
 # ==============================================================================
@@ -370,7 +547,7 @@ def process_shortcut_event():
     Steps:
     1. Captures selected text without blocking the UI.
     2. If no text is selected, tells the UI to notify the user.
-    3. If text is selected, immediately opens UI with 'Generating...' status.
+    3. If text is selected, immediately opens UI with 'Thinking...' status.
     4. Makes non-blocking local HTTP request to Ollama (llama3.2:1b).
     5. Posts final explanation (or error message) to the UI queue.
     """
@@ -387,7 +564,7 @@ def process_shortcut_event():
     print("------------------------------------------", flush=True)
     print("Requesting AI explanation from Ollama (llama3.2:1b)...", flush=True)
 
-    # Immediately pop up the window showing 'Generating...'
+    # Immediately pop up the floating bubble showing 'Thinking...'
     ui_queue.put(("generating", captured_text))
 
     # Perform Ollama inference in this background thread
@@ -446,18 +623,19 @@ def main():
     global keyboard_listener
 
     print("=" * 60, flush=True)
-    print("Kya-Ray - Version 5: AI Explanation Integration", flush=True)
+    print("Kya-Ray - Version 6: Floating Speech-Bubble UI", flush=True)
     print("=" * 60, flush=True)
     print("Instructions:", flush=True)
     print("  * Select text in any window and press Ctrl + Shift + J.", flush=True)
-    print("  * The response window will pop up and stream/display an AI explanation.", flush=True)
-    print("  * Powered locally by Ollama with model 'llama3.2:1b'.", flush=True)
-    print("  * Click 'Close' on the window to dismiss it.", flush=True)
-    print("  * Press Esc (or close the window with 'X') to exit.", flush=True)
+    print("  * A floating speech-bubble appears above your active app.", flush=True)
+    print("  * Pinned topmost: stays visible even when clicking VS Code.", flush=True)
+    print("  * Drag the bubble header to reposition it anywhere.", flush=True)
+    print("  * Click [X] or 'Close' to dismiss the bubble.", flush=True)
+    print("  * Press Esc to exit the application completely.", flush=True)
     print("=" * 60 + "\n", flush=True)
 
     root = tk.Tk()
-    app = ResponseWindow(root)
+    app = FloatingBubbleWindow(root)
 
     try:
         keyboard_listener = keyboard.Listener(
