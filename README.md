@@ -18,4 +18,3 @@ The goal is simple: Kya-Ray should understand what you need without making you c
 The model should infer the right action from your selection and context.
 
 Currently in development. Built around local AI, with privacy and staying out of your way at the center.
-
