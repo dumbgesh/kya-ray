@@ -36,7 +36,18 @@
 - Prompt requests concise, beginner-friendly explanations (2-3 sentences max).
 - Fully non-blocking: network I/O executes in background thread; UI updates pass safely through `ui_queue`.
 - Handles empty selections, network timeouts (30s), missing models (404), and unavailable Ollama service with friendly UI states.
-- Status: Implemented; automated unit tests passed; ready for manual Windows testing.
+- Status: Completed and verified.
+
+## V6 — Floating Speech-Bubble UI
+- Replaced basic window with a compact floating bubble interface (`FloatingBubbleWindow`).
+- Borderless floating card styling (`root.overrideredirect(True)`) with dark slate theme and accent border.
+- Pinned permanently above normal application windows (`root.attributes("-topmost", True)`), remaining visible when interacting with VS Code.
+- Draggable header bar (`<Button-1>`, `<B1-Motion>`) for repositioning the bubble anywhere on screen.
+- Smart screen positioning: anchors near active mouse cursor using Win32 `GetCursorPos` with screen clamping; falls back to upper-center.
+- Minimal controls: top-right '✕' dismiss button, bottom 'Close' button, and 'Esc' exit.
+- Preserved all V1–V5 keyboard shortcuts, text capture, clipboard restoration, and non-blocking Ollama inference.
+- Status: Implemented; automated tests passed; ready for manual testing.
+
 
 
 
