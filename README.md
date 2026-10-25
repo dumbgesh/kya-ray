@@ -1,7 +1,21 @@
-# kya-ray
+# Kya-Ray
 
-A desktop-first tool that lets people select or inspect something on their screen and receive a short, context-aware explanation in a floating bubble. It offers relevant follow-up actions based on what was selected and can save useful explanations for later.
+*A little context-aware AI companion.*
 
+Kya-Ray helps you understand and work with whatever you're looking at, right where you are.
 
-## additional ideas
-- we can add and store the bubbles and move them around (sticky note idea)
+Select something. Call Kya-Ray. Keep going.
+
+![Kya-Ray — product vision](assets/kya-ray-vision.png)
+
+The goal is simple: Kya-Ray should understand what you need without making you choose a mode.
+
+- **Explain** unfamiliar words and concepts.
+- **Summarize** longer passages.
+- **Compare** ideas and options.
+- **Code** and help complete what you're working on.
+
+The model should infer the right action from your selection and context.
+
+Currently in development. Built around local AI, with privacy and staying out of your way at the center.
+
