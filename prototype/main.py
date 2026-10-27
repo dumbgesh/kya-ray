@@ -141,8 +141,11 @@ def request_ai_explanation(text):
         If success is False, content is a user-friendly error message, and metrics is None.
     """
     prompt = (
-        "Explain the following selected text concisely and in simple, beginner-friendly terms "
-        f"(2 to 3 sentences max):\n\n\"{text.strip()}\""
+        "Explain the following selected text accurately in simple, beginner-friendly language. "
+        "Use 1 to 2 complete sentences with only the detail necessary to explain the meaning. "
+        "Finish the explanation cleanly without trailing off or starting an incomplete sentence. "
+        "Do not invent unsupported facts. If the selection is ambiguous, acknowledge the ambiguity.\n\n"
+        f"\"{text.strip()}\""
     )
 
     payload = {
