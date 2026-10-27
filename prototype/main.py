@@ -37,6 +37,69 @@ ui_queue = queue.Queue()
 # Global reference to the keyboard listener
 keyboard_listener = None
 
+# ==============================================================================
+# Profiler Telemetry Hook (V7 - Temporary Instrumentation)
+# ==============================================================================
+PROFILER_PORT = 49999
+_profiler_sock = None
+_run_counter = 0
+
+ALLOWED_METRIC_KEYS = (
+    "total_duration",
+    "load_duration",
+    "prompt_eval_duration",
+    "eval_duration",
+    "prompt_eval_count",
+    "eval_count",
+)
+
+
+def sanitize_ollama_metrics(raw_metrics):
+    """
+    Extracts and sanitizes ONLY numeric timing and token count metadata.
+    Guarantees strict privacy: zero user text, prompt, or response content is kept.
+    Missing, non-numeric, or negative fields are stored as None (unavailable).
+    """
+    if not isinstance(raw_metrics, dict):
+        return None
+    sanitized = {}
+    for key in ALLOWED_METRIC_KEYS:
+        val = raw_metrics.get(key)
+        # Ensure only numbers (int/float, excluding bool) >= 0 are accepted
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and val >= 0:
+            sanitized[key] = val
+        else:
+            sanitized[key] = None
+    return sanitized
+
+
+def emit_profile_event(event_name, run_id, error=None, metrics=None):
+    """
+    Sends lightweight, non-blocking telemetry event to local profiler.
+    Payload contains ONLY run_id, event name, monotonic timestamp, error category,
+    and optional numeric-only Ollama timing/token metrics.
+    Zero prompt, text, or explanation content is ever transmitted.
+    """
+    global _profiler_sock
+    try:
+        if _profiler_sock is None:
+            import socket
+            _profiler_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        payload = {
+            "run_id": run_id,
+            "event": event_name,
+            "ts": time.perf_counter(),
+            "error": error,
+        }
+        if metrics is not None:
+            sanitized = sanitize_ollama_metrics(metrics)
+            if sanitized is not None:
+                payload["metrics"] = sanitized
+        packet = json.dumps(payload).encode("utf-8")
+        _profiler_sock.sendto(packet, ("127.0.0.1", PROFILER_PORT))
+    except Exception:
+        pass
+
 
 # ==============================================================================
 # Windows Screen & Cursor Helper (ctypes)
@@ -72,9 +135,10 @@ def request_ai_explanation(text):
     Uses Python's built-in urllib standard library (no extra pip packages needed).
 
     Returns:
-        (success: bool, content: str)
-        If success is True, content is the generated explanation.
-        If success is False, content is a user-friendly error message.
+        (success: bool, content: str, metrics: dict | None)
+        If success is True, content is the generated explanation,
+        and metrics contains Ollama's numeric timing/token fields (or None if unavailable).
+        If success is False, content is a user-friendly error message, and metrics is None.
     """
     prompt = (
         "Explain the following selected text concisely and in simple, beginner-friendly terms "
@@ -85,6 +149,9 @@ def request_ai_explanation(text):
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,  # Request the complete response at once
+        "options": {
+            "num_predict": 45,
+        },
     }
 
     # Encode JSON payload to bytes for HTTP POST
@@ -101,26 +168,27 @@ def request_ai_explanation(text):
                 raw_body = response.read().decode("utf-8")
                 parsed_json = json.loads(raw_body)
                 explanation = parsed_json.get("response", "").strip()
+                metrics = sanitize_ollama_metrics(parsed_json)
 
                 if explanation:
-                    return True, explanation
-                return False, "Ollama returned an empty response."
+                    return True, explanation, metrics
+                return False, "Ollama returned an empty response.", None
             else:
-                return False, f"Ollama HTTP {response.status}: {response.reason}"
+                return False, f"Ollama HTTP {response.status}: {response.reason}", None
 
     except urllib.error.HTTPError as error:
         if error.code == 404:
-            return False, f"Model '{OLLAMA_MODEL}' was not found in Ollama. Run 'ollama pull {OLLAMA_MODEL}'."
-        return False, f"Ollama HTTP error {error.code}: {error.reason}"
+            return False, f"Model '{OLLAMA_MODEL}' was not found in Ollama. Run 'ollama pull {OLLAMA_MODEL}'.", None
+        return False, f"Ollama HTTP error {error.code}: {error.reason}", None
 
     except urllib.error.URLError:
-        return False, "Could not connect to Ollama at http://127.0.0.1:11434. Please ensure the Ollama app is running."
+        return False, "Could not connect to Ollama at http://127.0.0.1:11434. Please ensure the Ollama app is running.", None
 
     except TimeoutError:
-        return False, f"Request timed out after {REQUEST_TIMEOUT_SECONDS}s waiting for Ollama to respond."
+        return False, f"Request timed out after {REQUEST_TIMEOUT_SECONDS}s waiting for Ollama to respond.", None
 
     except Exception as error:
-        return False, f"Unexpected error while contacting Ollama: {error}"
+        return False, f"Unexpected error while contacting Ollama: {error}", None
 
 
 # ==============================================================================
@@ -367,7 +435,7 @@ class FloatingBubbleWindow:
 
         self._bring_to_front()
 
-    def show_explanation(self, selected_text, explanation):
+    def show_explanation(self, selected_text, explanation, run_id=None):
         """Displays the AI-generated explanation when ready."""
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
@@ -383,6 +451,13 @@ class FloatingBubbleWindow:
         self.text_area.config(state=tk.DISABLED)
 
         self._bring_to_front()
+
+        # Flush pending widget redraw and geometry calculations synchronously
+        self.root.update_idletasks()
+
+        # Profiler hook: record the moment Tkinter has processed the answer update
+        if run_id is not None:
+            emit_profile_event("answer_displayed", run_id)
 
     def show_error(self, selected_text, error_message):
         """Displays error details if Ollama inference fails."""
@@ -446,9 +521,11 @@ class FloatingBubbleWindow:
             while not ui_queue.empty():
                 action, payload = ui_queue.get_nowait()
                 if action == "generating":
-                    self.show_generating(payload)
+                    text = payload.get("text", "") if isinstance(payload, dict) else payload
+                    self.show_generating(text)
                 elif action == "explanation_ready":
-                    self.show_explanation(payload["text"], payload["explanation"])
+                    run_id = payload.get("run_id") if isinstance(payload, dict) else None
+                    self.show_explanation(payload["text"], payload["explanation"], run_id=run_id)
                 elif action == "explanation_error":
                     self.show_error(payload["text"], payload["error"])
                 elif action == "no_selection":
@@ -541,7 +618,7 @@ def capture_selected_text():
     return selected_text
 
 
-def process_shortcut_event():
+def process_shortcut_event(run_id=None):
     """
     Runs in a background thread when Ctrl + Shift + J is triggered.
     Steps:
@@ -551,12 +628,22 @@ def process_shortcut_event():
     4. Makes non-blocking local HTTP request to Ollama (llama3.2:1b).
     5. Posts final explanation (or error message) to the UI queue.
     """
+    if run_id is not None:
+        emit_profile_event("activation_started", run_id)
+
     print("\n--- Shortcut detected: Ctrl + Shift + J ---", flush=True)
+
+    if run_id is not None:
+        emit_profile_event("text_capture_started", run_id)
     captured_text = capture_selected_text()
+    if run_id is not None:
+        emit_profile_event("text_capture_completed", run_id)
 
     if not captured_text or not captured_text.strip():
         print("[No text selected]\n", flush=True)
-        ui_queue.put(("no_selection", None))
+        if run_id is not None:
+            emit_profile_event("pipeline_aborted", run_id, error="no_selection")
+        ui_queue.put(("no_selection", {"run_id": run_id}))
         return
 
     print("Captured text:", flush=True)
@@ -565,19 +652,32 @@ def process_shortcut_event():
     print("Requesting AI explanation from Ollama (llama3.2:1b)...", flush=True)
 
     # Immediately pop up the floating bubble showing 'Thinking...'
-    ui_queue.put(("generating", captured_text))
+    ui_queue.put(("generating", {"text": captured_text, "run_id": run_id}))
 
     # Perform Ollama inference in this background thread
-    success, result = request_ai_explanation(captured_text)
+    if run_id is not None:
+        emit_profile_event("ollama_request_started", run_id)
+    success, result, metrics = request_ai_explanation(captured_text)
+    if run_id is not None:
+        emit_profile_event(
+            "ollama_response_received",
+            run_id,
+            error=None if success else "ollama_error",
+            metrics=metrics if success else None,
+        )
 
     if success:
         print("Explanation generated successfully:", flush=True)
         print(result, flush=True)
         print("------------------------------------------\n", flush=True)
-        ui_queue.put(("explanation_ready", {"text": captured_text, "explanation": result}))
+        if run_id is not None:
+            emit_profile_event("ui_update_queued", run_id)
+        ui_queue.put(("explanation_ready", {"text": captured_text, "explanation": result, "run_id": run_id}))
     else:
         print(f"[Error] Failed to generate explanation: {result}\n", flush=True)
-        ui_queue.put(("explanation_error", {"text": captured_text, "error": result}))
+        if run_id is not None:
+            emit_profile_event("pipeline_aborted", run_id, error="ollama_failed")
+        ui_queue.put(("explanation_error", {"text": captured_text, "error": result, "run_id": run_id}))
 
 
 def on_press(key):
@@ -585,7 +685,7 @@ def on_press(key):
     Called whenever any key is pressed down.
     Adds key to pressed_keys and checks if the shortcut was just completed.
     """
-    global shortcut_triggered
+    global shortcut_triggered, _run_counter
 
     pressed_keys.add(key)
 
@@ -596,8 +696,12 @@ def on_press(key):
     if ctrl_held and shift_held and j_pressed_now:
         if not shortcut_triggered:
             shortcut_triggered = True
-            # Run capture & inference in a background daemon thread
-            threading.Thread(target=process_shortcut_event, daemon=True).start()
+            # Assign unique run ID explicitly for this activation
+            _run_counter += 1
+            run_id = _run_counter
+            emit_profile_event("hotkey_detected", run_id)
+            # Run capture & inference in background daemon thread with explicit run_id
+            threading.Thread(target=process_shortcut_event, args=(run_id,), daemon=True).start()
 
 
 def on_release(key):
