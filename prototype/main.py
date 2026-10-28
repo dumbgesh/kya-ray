@@ -188,8 +188,8 @@ INTENT_INSTRUCTIONS = {
     ),
     "-code": (
         "Explain what the following code or terminal command actually does in 1 to 2 complete sentences. "
-        "The input is only provided as text: do not claim it was executed or run, and never invent command execution results, error messages, or reasons for failure. "
         "Identify likely syntax errors, misspelled module names, or typos (such as 'panadas' for 'pandas') and state the obvious correction. "
+        "The input is only provided as text: do not claim it was executed or run, and never invent command execution results, error messages, or reasons for failure. "
         "Finish cleanly without trailing off or starting an incomplete sentence."
     ),
     "-create": (
@@ -199,6 +199,50 @@ INTENT_INSTRUCTIONS = {
         "Generate the requested text directly without conversational preamble, finishing cleanly without trailing off or starting an incomplete sentence."
     ),
 }
+
+
+TYPED_DECLARATION_PREFIXES = (
+    "int ", "float ", "double ", "char ", "bool ", "boolean ",
+    "void ", "val ", "auto ", "mut ", "short ", "long ", "byte ",
+    "uint ", "size_t ",
+)
+
+
+def is_typed_declaration_or_code_line(line):
+    """
+    Checks if a single stripped line represents a typed declaration or code statement.
+    Anchored to line start to avoid false matches on English prose (e.g. 'international', 'integral').
+    """
+    stripped = line.strip()
+    if not stripped:
+        return False
+
+    for prefix in TYPED_DECLARATION_PREFIXES:
+        if stripped.startswith(prefix):
+            remainder = stripped[len(prefix):].strip()
+            if not remainder:
+                return False
+            tokens = remainder.split()
+            first_ident = tokens[0].split("(")[0].rstrip(";,:=")
+            if first_ident.isidentifier():
+                if "=" in remainder or "(" in remainder or remainder.endswith(";") or len(tokens) == 1:
+                    return True
+
+    return False
+
+
+def is_assignment_line(line):
+    """Checks if a line is a code assignment (e.g., 'sum = a + b', 'x = 42')."""
+    stripped = line.strip().rstrip(";")
+    if "=" not in stripped or "==" in stripped or "!=" in stripped or "<=" in stripped or ">=" in stripped:
+        return False
+    parts = stripped.split("=", 1)
+    lhs = parts[0].strip()
+    if lhs and all(part.isidentifier() for part in lhs.split(".")):
+        rhs = parts[1].strip()
+        if rhs and not rhs.endswith((".", "!", "?")):
+            return True
+    return False
 
 
 def infer_intent(text):
@@ -243,14 +287,25 @@ def infer_intent(text):
     if has_code_symbols:
         return "-code"
 
-    # C. Explicit code declarations
+    # C. Explicit code declarations and typed statements
     has_explicit_code_def = any(
         line.strip().startswith(("def ", "class ", "function ", "async def ", "public class ", "import ", "interface "))
         or (line.strip().startswith("from ") and " import " in line)
+        or is_typed_declaration_or_code_line(line)
         for line in raw.splitlines()
     )
     if has_explicit_code_def:
         return "-code"
+
+    # D. Multiline code block signals (>= 2 lines with assignments or typed statements)
+    raw_lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    if len(raw_lines) >= 2:
+        code_signal_lines = sum(
+            1 for line in raw_lines
+            if is_typed_declaration_or_code_line(line) or is_assignment_line(line)
+        )
+        if code_signal_lines >= 2:
+            return "-code"
 
     # 3. Detect -summarize:
     # Substantial natural language prose (>= 50 words, or multiple paragraphs / bulleted items >= 20 words)
