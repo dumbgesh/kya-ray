@@ -11,6 +11,56 @@ import urllib.error
 import urllib.request
 import pyperclip
 from pynput import keyboard
+import os
+import sys
+
+# Ensure logs directory and safe stdout/stderr for windowed/compiled mode
+def setup_safe_logging():
+    appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+    log_dir = os.path.join(appdata, "Kya-Ray")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "kya-ray.log")
+    except Exception:
+        log_file = None
+
+    class SafeOutput:
+        def __init__(self, original_stream, log_path):
+            self.original = original_stream
+            self.log_path = log_path
+
+        def write(self, text):
+            if self.original:
+                try:
+                    self.original.write(text)
+                except Exception:
+                    pass
+            if self.log_path and text and text.strip():
+                try:
+                    with open(self.log_path, "a", encoding="utf-8") as f:
+                        f.write(text)
+                        if not text.endswith("\n"):
+                            f.write("\n")
+                except Exception:
+                    pass
+
+        def flush(self):
+            if self.original:
+                try:
+                    self.original.flush()
+                except Exception:
+                    pass
+
+    # Redirect stdout and stderr if running windowed without console
+    if sys.stdout is None or not hasattr(sys.stdout, "write"):
+        sys.stdout = SafeOutput(None, log_file)
+    else:
+        sys.stdout = SafeOutput(sys.stdout, log_file)
+
+    if sys.stderr is None or not hasattr(sys.stderr, "write"):
+        sys.stderr = SafeOutput(None, log_file)
+    else:
+        sys.stderr = SafeOutput(sys.stderr, log_file)
 
 # ==============================================================================
 # Configuration & Constants
@@ -401,6 +451,28 @@ def clean_truncated_sentence(text):
 # Local AI Helper (Ollama)
 # ==============================================================================
 
+def check_ollama_prerequisites():
+    """
+    Non-blocking check for Ollama API availability and the required model.
+    Does NOT download models automatically. Returns (status, message).
+    """
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                models = [m.get("name", "") for m in data.get("models", [])]
+                found = any(OLLAMA_MODEL in m for m in models)
+                if found:
+                    return "ready", f"Ollama is running with {OLLAMA_MODEL}."
+                return "model_missing", f"Ollama is running, but model '{OLLAMA_MODEL}' was not found.\n\nPlease run 'ollama pull {OLLAMA_MODEL}' in your terminal."
+    except urllib.error.URLError:
+        return "offline", "Could not connect to Ollama (http://127.0.0.1:11434).\n\nPlease launch the Ollama desktop application."
+    except Exception as e:
+        return "offline", f"Ollama check failed: {e}"
+    return "offline", "Ollama is not reachable."
+
+
 def request_ai_explanation(text, intent=None):
     """
     Sends selected text to the local Ollama API to generate a concise response
@@ -464,13 +536,21 @@ def request_ai_explanation(text, intent=None):
 
 
 # ==============================================================================
-# GUI: Floating Speech-Bubble Window (Tkinter)
+# GUI: Minimal Floating Panel (Tkinter)
 # ==============================================================================
+
+INTENT_DISPLAY_LABELS = {
+    "-explain": "Explain",
+    "-summarize": "Summary",
+    "-code": "Code",
+    "-create": "Create",
+}
+
 
 def get_system_theme():
     """
     Detects Windows OS light/dark theme preference via registry.
-    Returns a dictionary of cohesive colors for the comic speech bubble.
+    Returns a dictionary of cohesive colors for the minimal floating panel.
     """
     is_dark = False
     try:
@@ -489,7 +569,7 @@ def get_system_theme():
         return {
             "mode": "dark",
             "bubble_fill": "#18181b",      # Deep dark slate/zinc
-            "outline": "#38bdf8",          # Sky-blue contrasting comic outline
+            "outline": "#334155",          # Restrained subtle outline
             "text": "#f4f4f5",             # Clean light text
             "title": "#38bdf8",            # Identity accent
             "tag": "#94a3b8",              # Muted command/intent tag
@@ -500,25 +580,53 @@ def get_system_theme():
     else:
         return {
             "mode": "light",
-            "bubble_fill": "#ffffff",      # Clean white matching reference image
-            "outline": "#18181b",          # Thin dark comic pen outline
+            "bubble_fill": "#ffffff",      # Clean white background
+            "outline": "#cbd5e1",          # Restrained soft outline
             "text": "#18181b",             # Dark legible text
-            "title": "#09090b",            # Crisp dark title
-            "tag": "#52525b",              # Muted comic tag color
+            "title": "#0284c7",            # Crisp dark accent
+            "tag": "#64748b",              # Muted tag color
             "close_btn": "#71717a",        # Muted close icon
             "close_hover": "#ef4444",      # Red hover
             "trans_color": "#000001",      # Transparent color key
         }
 
 
-def compute_comic_bubble_polygon(w, h, r=50, tail_side="bottom", tail_tip_x=80, tail_tip_y=285):
+def compute_rounded_panel_polygon(w, h, r=10):
     """
-    Computes vertices for a large, horizontally oriented, oval-like comic speech bubble
-    with an integrated curved tail pointing toward (tail_tip_x, tail_tip_y).
-    Produces a single continuous closed perimeter without seams.
+    Computes vertices for a compact, minimal floating panel with subtle rounded corners.
+    Produces a single continuous closed perimeter.
     """
     points = []
+    x1, y1 = 4, 4
+    x2, y2 = w - 4, h - 4
+    r = min(r, (y2 - y1) // 2, (x2 - x1) // 2)
 
+    # Top-left arc
+    for a in range(180, 271, 10):
+        rad = math.radians(a)
+        points.extend([x1 + r + r * math.cos(rad), y1 + r + r * math.sin(rad)])
+    # Top-right arc
+    for a in range(270, 361, 10):
+        rad = math.radians(a)
+        points.extend([x2 - r + r * math.cos(rad), y1 + r + r * math.sin(rad)])
+    # Bottom-right arc
+    for a in range(0, 91, 10):
+        rad = math.radians(a)
+        points.extend([x2 - r + r * math.cos(rad), y2 - r + r * math.sin(rad)])
+    # Bottom-left arc
+    for a in range(90, 181, 10):
+        rad = math.radians(a)
+        points.extend([x1 + r + r * math.cos(rad), y2 - r + r * math.sin(rad)])
+
+    return points
+
+
+def compute_comic_bubble_polygon(w, h, r=50, tail_side="bottom", tail_tip_x=80, tail_tip_y=285):
+    """
+    Retained for backward compatibility with geometry unit tests.
+    Computes vertices for a comic speech bubble silhouette.
+    """
+    points = []
     if tail_side == "bottom":
         y1 = 10
         y2 = h - 35
@@ -530,27 +638,21 @@ def compute_comic_bubble_polygon(w, h, r=50, tail_side="bottom", tail_tip_x=80, 
     x2 = w - 10
     r = min(r, (y2 - y1) // 2, (x2 - x1) // 2)
 
-    # 1. Top perimeter (with tail if tail_side == 'top')
     if tail_side == "top":
         for a in range(180, 271, 5):
             rad = math.radians(a)
             points.extend([x1 + r + r * math.cos(rad), y1 + r + r * math.sin(rad)])
-
         t_base_left = min(x2 - r - 60, max(x1 + r, tail_tip_x - 30))
         t_base_right = t_base_left + 50
-
         points.extend([t_base_left, y1])
-        # Smooth swoop up to tail tip
         for t in (0.3, 0.7, 1.0):
             cx = (1 - t) ** 2 * t_base_left + 2 * (1 - t) * t * (tail_tip_x - 10) + t ** 2 * tail_tip_x
             cy = (1 - t) ** 2 * y1 + 2 * (1 - t) * t * (y1 - (y1 - tail_tip_y) * 0.6) + t ** 2 * tail_tip_y
             points.extend([cx, cy])
-        # Smooth swoop back down to right base
         for t in (0.4, 0.8, 1.0):
             cx = (1 - t) ** 2 * tail_tip_x + 2 * (1 - t) * t * (tail_tip_x + 15) + t ** 2 * t_base_right
             cy = (1 - t) ** 2 * tail_tip_y + 2 * (1 - t) * t * (y1 - (y1 - tail_tip_y) * 0.5) + t ** 2 * y1
             points.extend([cx, cy])
-
         for a in range(270, 361, 5):
             rad = math.radians(a)
             points.extend([x2 - r + r * math.cos(rad), y1 + r + r * math.sin(rad)])
@@ -562,28 +664,22 @@ def compute_comic_bubble_polygon(w, h, r=50, tail_side="bottom", tail_tip_x=80, 
             rad = math.radians(a)
             points.extend([x2 - r + r * math.cos(rad), y1 + r + r * math.sin(rad)])
 
-    # 2. Bottom-right arc
     for a in range(0, 91, 5):
         rad = math.radians(a)
         points.extend([x2 - r + r * math.cos(rad), y2 - r + r * math.sin(rad)])
 
-    # 3. Bottom edge (with curved comic tail if tail_side == 'bottom')
     if tail_side == "bottom":
         t_base_right = min(x2 - r, max(x1 + r + 60, tail_tip_x + 35))
         t_base_left = t_base_right - 50
-
         points.extend([t_base_right, y2])
-        # Smooth swoop down to tail tip
         for t in (0.3, 0.7, 1.0):
             cx = (1 - t) ** 2 * t_base_right + 2 * (1 - t) * t * (tail_tip_x + 20) + t ** 2 * tail_tip_x
             cy = (1 - t) ** 2 * y2 + 2 * (1 - t) * t * (y2 + (tail_tip_y - y2) * 0.6) + t ** 2 * tail_tip_y
             points.extend([cx, cy])
-        # Smooth swoop back up to left base
         for t in (0.4, 0.8, 1.0):
             cx = (1 - t) ** 2 * tail_tip_x + 2 * (1 - t) * t * (tail_tip_x - 10) + t ** 2 * t_base_left
             cy = (1 - t) ** 2 * tail_tip_y + 2 * (1 - t) * t * (y2 + (tail_tip_y - y2) * 0.5) + t ** 2 * y2
             points.extend([cx, cy])
-
         for a in range(90, 181, 5):
             rad = math.radians(a)
             points.extend([x1 + r + r * math.cos(rad), y2 - r + r * math.sin(rad)])
@@ -597,8 +693,7 @@ def compute_comic_bubble_polygon(w, h, r=50, tail_side="bottom", tail_tip_x=80, 
 
 def compute_bubble_polygon(*args, **kwargs):
     """
-    Backward-compatibility wrapper for compute_comic_bubble_polygon.
-    Supports both modern (w, h, ...) and legacy (x1, y1, x2, y2, ...) calls.
+    Backward-compatibility wrapper for bubble polygon calculations.
     """
     if len(args) >= 4:
         x1, y1, x2, y2 = args[:4]
@@ -615,29 +710,24 @@ def compute_bubble_polygon(*args, **kwargs):
 
 class FloatingBubbleWindow:
     """
-    Clean, oval-shaped comic speech-bubble interface for Kya-Ray matching the reference design.
+    Compact, minimal floating panel for Kya-Ray.
 
     Key characteristics:
-    1. Large horizontally oriented oval-like speech bubble with integrated curved tail.
-    2. Follows OS light/dark theme (crisp white in light mode, deep dark in dark mode).
-    3. Seamless content layout: no rectangular header bar, no boxed region, no scrollbar.
-    4. Adaptive tail orientation pointing toward the selected text/cursor.
-    5. Fully transparent desktop background outside the bubble silhouette.
-    6. Maintained thread-safety via ui_queue and global hotkey.
+    1. Restrained border with subtle rounded corners and clean padding.
+    2. Follows OS light/dark theme preference.
+    3. The generated answer is the absolute visual focus; selected text is not displayed as quoted input.
+    4. Shows subtle intent label (Explain, Summary, Code, or Create).
+    5. Minimal controls: top-right close '✕' to dismiss, 'Exit' link for clean shutdown, right-click menu.
+    6. Escape dismisses the visible panel without terminating the background process.
     """
 
     def __init__(self, root):
         self.root = root
         self.root.title("Kya-Ray")
 
-        # Dimensions of the horizontal oval comic bubble
-        self.width = 480
-        self.height = 270
-
-        # Current tail orientation and tip position
-        self.tail_side = "bottom"
-        self.tail_tip_x = 80
-        self.tail_tip_y = self.height - 5
+        # Dimensions of the compact floating panel
+        self.width = 440
+        self.height = 190
 
         # Enable borderless floating window and topmost pinning
         self.root.overrideredirect(True)
@@ -659,7 +749,7 @@ class FloatingBubbleWindow:
         self._drag_start_x = 0
         self._drag_start_y = 0
 
-        # Canvas drawing the rounded comic speech-bubble silhouette and tail
+        # Canvas drawing the rounded panel silhouette
         self.canvas = tk.Canvas(
             root,
             width=self.width,
@@ -669,63 +759,83 @@ class FloatingBubbleWindow:
         )
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # Draw the comic speech bubble polygon (seamless stroke and solid fill)
-        bubble_pts = compute_comic_bubble_polygon(
-            self.width,
-            self.height,
-            r=50,
-            tail_side=self.tail_side,
-            tail_tip_x=self.tail_tip_x,
-            tail_tip_y=self.tail_tip_y,
-        )
+        # Draw the compact panel polygon (restrained border and solid fill)
+        panel_pts = compute_rounded_panel_polygon(self.width, self.height, r=10)
         self.bubble_polygon = self.canvas.create_polygon(
-            bubble_pts,
+            panel_pts,
             fill=self.theme["bubble_fill"],
             outline=self.theme["outline"],
-            width=2,
+            width=1.5,
         )
 
-        # Content container frame embedded inside the bubble body
+        # Content container frame embedded inside the panel
         self.content_frame = tk.Frame(self.canvas, bg=self.theme["bubble_fill"])
-        self.content_window_y = 18 if self.tail_side == "bottom" else 42
         self.content_window = self.canvas.create_window(
-            (35, self.content_window_y),
+            (14, 10),
             window=self.content_frame,
             anchor=tk.NW,
-            width=self.width - 70,
-            height=self.height - 62,
+            width=self.width - 28,
+            height=self.height - 20,
         )
 
         # ----------------------------------------------------------------------
-        # Top Row: Kya-Ray identity, inferred intent tag, and clean close button
+        # Header Row: Subtle intent badge and minimal controls (Exit | ✕)
         # ----------------------------------------------------------------------
         self.header_frame = tk.Frame(self.content_frame, bg=self.theme["bubble_fill"])
-        self.header_frame.pack(fill=tk.X, pady=(0, 2))
+        self.header_frame.pack(fill=tk.X, pady=(0, 4))
 
-        # Comic identity / intent label (e.g., "---------- $kya-ray -explain ----------")
+        # Subtle intent indicator (e.g., "Kya-Ray · Explain")
         self.header_status = tk.Label(
             self.header_frame,
-            text="---------- $kya-ray -explain ----------",
-            font=("Segoe UI", 9),
-            fg=self.theme["tag"],
+            text="Kya-Ray · Explain",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.theme["title"],
             bg=self.theme["bubble_fill"],
         )
         self.header_status.pack(side=tk.LEFT)
 
-        # Backward compatibility alias
+        # Backward compatibility aliases
         self.title_label = self.header_status
         self.footer_hint = self.header_status
 
-        # Minimalist close icon ('✕')
+        # Minimal controls container on the right
+        self.controls_frame = tk.Frame(self.header_frame, bg=self.theme["bubble_fill"])
+        self.controls_frame.pack(side=tk.RIGHT)
+
+        # Discoverable, deliberate Exit button
+        self.exit_btn = tk.Label(
+            self.controls_frame,
+            text="Exit",
+            font=("Segoe UI", 8),
+            fg=self.theme["close_btn"],
+            bg=self.theme["bubble_fill"],
+            cursor="hand2",
+        )
+        self.exit_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.exit_btn.bind("<Button-1>", lambda e: self.on_exit())
+        self.exit_btn.bind("<Enter>", lambda e: self.exit_btn.config(fg=self.theme["close_hover"]))
+        self.exit_btn.bind("<Leave>", lambda e: self.exit_btn.config(fg=self.theme["close_btn"]))
+
+        # Subtle separator
+        self.sep_label = tk.Label(
+            self.controls_frame,
+            text="|",
+            font=("Segoe UI", 8),
+            fg=self.theme["close_btn"],
+            bg=self.theme["bubble_fill"],
+        )
+        self.sep_label.pack(side=tk.LEFT, padx=(0, 6))
+
+        # Minimal close icon ('✕') to dismiss
         self.close_x_btn = tk.Label(
-            self.header_frame,
-            text=" ✕ ",
+            self.controls_frame,
+            text="✕",
             font=("Segoe UI", 9, "bold"),
             fg=self.theme["close_btn"],
             bg=self.theme["bubble_fill"],
             cursor="hand2",
         )
-        self.close_x_btn.pack(side=tk.RIGHT)
+        self.close_x_btn.pack(side=tk.LEFT)
         self.close_x_btn.bind("<Button-1>", lambda e: self.hide_window())
         self.close_x_btn.bind("<Enter>", lambda e: self.close_x_btn.config(fg=self.theme["close_hover"]))
         self.close_x_btn.bind("<Leave>", lambda e: self.close_x_btn.config(fg=self.theme["close_btn"]))
@@ -733,21 +843,18 @@ class FloatingBubbleWindow:
         # Backward compatibility alias
         self.dismiss_btn = self.close_x_btn
 
-        # ----------------------------------------------------------------------
-        # Selection Headline: short concept/snippet in bold (like 'return')
-        # ----------------------------------------------------------------------
+        # Attribute retained for backward-compatibility with tests, but NOT packed
+        # (Selected text is context for the model, not displayed as quoted input)
         self.sel_label = tk.Label(
             self.content_frame,
             text="",
-            font=("Segoe UI", 11, "bold"),
-            fg=self.theme["title"],
+            font=("Segoe UI", 9),
+            fg=self.theme["tag"],
             bg=self.theme["bubble_fill"],
-            anchor="w",
         )
-        self.sel_label.pack(fill=tk.X, pady=(4, 2))
 
         # ----------------------------------------------------------------------
-        # Response Text: borderless, seamless text display with smooth wrapping
+        # Response Text: The visual focus of the floating panel
         # ----------------------------------------------------------------------
         self.text_area = tk.Text(
             self.content_frame,
@@ -758,44 +865,58 @@ class FloatingBubbleWindow:
             relief=tk.FLAT,
             bd=0,
             highlightthickness=0,
-            spacing1=2,
-            spacing3=2,
+            spacing1=1,
+            spacing3=1,
         )
         self.text_area.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         self.text_area.insert(
             tk.END,
             "Select text in any window and press Ctrl + Shift + J.\n\n"
-            "Kya-Ray will explain, summarize, or inspect code in this comic speech bubble.",
+            "Kya-Ray will provide a concise answer directly here.",
         )
         self.text_area.config(state=tk.DISABLED)
 
-        # Allow mouse-wheel scrolling for longer responses without displaying a scrollbar
-        for widget in (self.text_area, self.content_frame, self.canvas):
+        # Right-click context menu for deliberate options
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Dismiss Bubble (Esc)", command=self.hide_window)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Exit Kya-Ray completely", command=self.on_exit)
+
+        def _show_context_menu(event):
+            try:
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.context_menu.grab_release()
+
+        # Mouse bindings
+        for widget in (self.canvas, self.content_frame, self.header_frame, self.header_status, self.text_area):
+            widget.bind("<Button-1>", self.start_drag)
+            widget.bind("<B1-Motion>", self.do_drag)
+            widget.bind("<Button-3>", _show_context_menu)
             widget.bind(
                 "<MouseWheel>",
                 lambda e: self.text_area.yview_scroll(int(-1 * (e.delta / 120)), "units")
             )
 
-        # Bind mouse drag events to the canvas and non-interactive regions
-        for widget in (self.canvas, self.content_frame, self.header_frame, self.header_status, self.sel_label):
-            widget.bind("<Button-1>", self.start_drag)
-            widget.bind("<B1-Motion>", self.do_drag)
+        # Bind Esc key on root window to dismiss the bubble (NOT exit the app)
+        self.root.bind("<Escape>", lambda e: self.hide_window())
 
-        # Bind Esc key to cleanly exit the application
-        self.root.bind("<Escape>", lambda e: self.on_exit())
+        # Tail attributes for backward compatibility with geometry tests
+        self.tail_side = "bottom"
+        self.tail_tip_x = 80
+        self.tail_tip_y = self.height - 5
 
-        # Position bubble initially
+        # Position panel initially
         self.position_bubble()
 
-        # Start checking the queue for events sent from background threads
+        # Start checking the queue
         self.check_queue()
 
     def start_drag(self, event):
-        """Records initial pointer offset when user starts dragging the bubble."""
+        """Records initial pointer offset when user starts dragging the panel."""
         self._drag_start_x = event.x_root - self.root.winfo_x()
         self._drag_start_y = event.y_root - self.root.winfo_y()
 
-    # Aliases for drag handlers
     _on_drag_start = start_drag
 
     def do_drag(self, event):
@@ -807,10 +928,7 @@ class FloatingBubbleWindow:
     _on_drag_motion = do_drag
 
     def position_bubble(self, cursor_x=None, cursor_y=None):
-        """
-        Positions the speech bubble close to the selected text/cursor and adapts
-        tail orientation and direction to point directly toward the selection.
-        """
+        """Positions the floating panel close to the mouse cursor clamped to screen bounds."""
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
 
@@ -823,11 +941,10 @@ class FloatingBubbleWindow:
             else:
                 mx, my = screen_w // 2, screen_h // 2
 
-        # Primary placement: float ABOVE the selected text (matching reference image)
+        # Primary placement: float above cursor
         ideal_y = my - self.height - 12
-        ideal_x = mx - 80
+        ideal_x = mx - 40
 
-        # Adaptive tail orientation: if near screen top edge, place BELOW selection
         if ideal_y < 15:
             target_y = my + 25
             self.tail_side = "top"
@@ -837,36 +954,13 @@ class FloatingBubbleWindow:
             self.tail_side = "bottom"
             self.tail_tip_y = self.height - 5
 
-        # Clamp target coordinates to keep bubble completely within visible screen
         target_x = max(15, min(ideal_x, screen_w - self.width - 15))
         target_y = max(15, min(target_y, screen_h - self.height - 45))
 
-        # Compute tail tip X pointing directly toward the mouse cursor
-        rel_cursor_x = mx - target_x
-        self.tail_tip_x = max(65, min(rel_cursor_x, self.width - 65))
-
         self.root.geometry(f"{self.width}x{self.height}+{target_x}+{target_y}")
 
-        # Update the canvas speech-bubble polygon to match the active tail side & tip
-        bubble_pts = compute_comic_bubble_polygon(
-            self.width,
-            self.height,
-            r=50,
-            tail_side=self.tail_side,
-            tail_tip_x=self.tail_tip_x,
-            tail_tip_y=self.tail_tip_y,
-        )
-        self.canvas.coords(self.bubble_polygon, *bubble_pts)
-
-        # Adjust content frame vertical position based on tail orientation
-        content_y = 18 if self.tail_side == "bottom" else 42
-        self.canvas.coords(self.content_window, 35, content_y)
-
     def _bring_to_front(self):
-        """
-        Ensures the floating bubble is visible and stays permanently pinned above
-        normal application windows (including VS Code).
-        """
+        """Ensures the floating panel is visible and stays pinned above other windows."""
         self.root.deiconify()
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
@@ -875,17 +969,8 @@ class FloatingBubbleWindow:
     def show_generating(self, selected_text, intent="-explain"):
         """Displays generating state while Ollama processes the text."""
         self.position_bubble()
-
-        intent_tag = intent if intent else "-explain"
-        self.header_status.config(text=f"---------- $kya-ray {intent_tag} ----------")
-
-        raw_preview = selected_text.strip()
-        first_line = raw_preview.splitlines()[0].strip() if raw_preview.splitlines() else raw_preview
-        if len(first_line) <= 45:
-            headline = f"'{first_line}'"
-        else:
-            headline = f"'{first_line[:42]}...'"
-        self.sel_label.config(text=headline)
+        label = INTENT_DISPLAY_LABELS.get(intent, "Explain")
+        self.header_status.config(text=f"Kya-Ray · {label}")
 
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
@@ -895,17 +980,9 @@ class FloatingBubbleWindow:
         self._bring_to_front()
 
     def show_explanation(self, selected_text, explanation, run_id=None, intent="-explain"):
-        """Displays the AI-generated response directly in the comic speech bubble."""
-        intent_tag = intent if intent else "-explain"
-        self.header_status.config(text=f"---------- $kya-ray {intent_tag} ----------")
-
-        raw_preview = selected_text.strip()
-        first_line = raw_preview.splitlines()[0].strip() if raw_preview.splitlines() else raw_preview
-        if len(first_line) <= 45:
-            headline = f"'{first_line}'"
-        else:
-            headline = f"'{first_line[:42]}...'"
-        self.sel_label.config(text=headline)
+        """Displays the AI-generated response directly in the minimal floating panel."""
+        label = INTENT_DISPLAY_LABELS.get(intent, "Explain")
+        self.header_status.config(text=f"Kya-Ray · {label}")
 
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
@@ -913,8 +990,6 @@ class FloatingBubbleWindow:
         self.text_area.config(state=tk.DISABLED)
 
         self._bring_to_front()
-
-        # Flush pending widget redraw and geometry calculations synchronously
         self.root.update_idletasks()
 
         if run_id is not None:
@@ -922,15 +997,7 @@ class FloatingBubbleWindow:
 
     def show_error(self, selected_text, error_message):
         """Displays error details if Ollama inference fails."""
-        self.header_status.config(text="---------- $kya-ray [error] ----------")
-
-        raw_preview = selected_text.strip()
-        first_line = raw_preview.splitlines()[0].strip() if raw_preview.splitlines() else raw_preview
-        if len(first_line) <= 45:
-            headline = f"'{first_line}'"
-        else:
-            headline = f"'{first_line[:42]}...'"
-        self.sel_label.config(text=headline)
+        self.header_status.config(text="Kya-Ray · Error")
 
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
@@ -942,15 +1009,30 @@ class FloatingBubbleWindow:
     def show_no_selection(self):
         """Displays notice when user triggered the shortcut with nothing selected."""
         self.position_bubble()
-        self.header_status.config(text="---------- $kya-ray ----------")
-        self.sel_label.config(text="No Selection")
+        self.header_status.config(text="Kya-Ray · Notice")
 
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
         self.text_area.insert(
             tk.END,
             "No text was selected.\n\n"
-            "Please highlight some text in any window and press Ctrl + Shift + J again."
+            "Please highlight some text in any window and press Ctrl + Shift + J."
+        )
+        self.text_area.config(state=tk.DISABLED)
+
+        self._bring_to_front()
+
+    def show_startup_notice(self, status, message):
+        """Displays startup prerequisite notice if Ollama or model is unavailable."""
+        self.position_bubble()
+        self.header_status.config(text="Kya-Ray · Prerequisite Notice")
+
+        self.text_area.config(state=tk.NORMAL)
+        self.text_area.delete("1.0", tk.END)
+        self.text_area.insert(
+            tk.END,
+            f"{message}\n\n"
+            "Kya-Ray is active in the background. Press Ctrl + Shift + J once ready."
         )
         self.text_area.config(state=tk.DISABLED)
 
@@ -964,13 +1046,13 @@ class FloatingBubbleWindow:
             self.show_no_selection()
 
     def hide_window(self):
-        """Hides the bubble when dismissed by the user."""
+        """Hides the panel when dismissed by the user."""
         self.root.withdraw()
-        print("Bubble dismissed. Press Ctrl + Shift + J to show it again, or Esc to exit.", flush=True)
+        print("Panel dismissed. Press Ctrl + Shift + J to show it again, or click Exit to quit.", flush=True)
 
     def on_exit(self):
         """Cleanly terminates the application when exiting."""
-        print("\nWindow closed. Exiting...", flush=True)
+        print("\nKya-Ray exiting cleanly...", flush=True)
         if keyboard_listener and keyboard_listener.is_alive():
             keyboard_listener.stop()
         self.root.destroy()
@@ -978,7 +1060,6 @@ class FloatingBubbleWindow:
     def check_queue(self):
         """
         Polls the queue every 50ms for events sent from background threads.
-        This ensures Tkinter widgets are only ever modified on the main thread.
         """
         try:
             while not ui_queue.empty():
@@ -995,6 +1076,11 @@ class FloatingBubbleWindow:
                     self.show_error(payload["text"], payload["error"])
                 elif action == "no_selection":
                     self.show_no_selection()
+                elif action == "startup_notice":
+                    self.show_startup_notice(payload.get("status"), payload.get("message"))
+                elif action == "dismiss_bubble":
+                    if self.root.state() != "withdrawn":
+                        self.hide_window()
                 elif action == "show_text":
                     self.display_text(payload)
                 elif action == "quit":
@@ -1008,7 +1094,6 @@ class FloatingBubbleWindow:
 
 # Alias for backward compatibility with existing tests
 ResponseWindow = FloatingBubbleWindow
-
 
 # ==============================================================================
 # Keyboard & Shortcut Detection (V1 - V2)
@@ -1191,30 +1276,37 @@ def on_release(key):
     if is_shortcut_key(key):
         shortcut_triggered = False
 
-    # Esc stops the listener cleanly and tells Tkinter to close
+    # Esc only dismisses the visible floating panel; it does not terminate the background process
     if key == keyboard.Key.esc:
-        print("\nEsc pressed. Exiting...", flush=True)
-        ui_queue.put(("quit", None))
-        return False
+        ui_queue.put(("dismiss_bubble", None))
 
 
 def main():
     global keyboard_listener
 
+    setup_safe_logging()
+
     print("=" * 60, flush=True)
-    print("Kya-Ray - Version 6: Floating Speech-Bubble UI", flush=True)
+    print("Kya-Ray - Context-Aware Desktop Companion", flush=True)
     print("=" * 60, flush=True)
     print("Instructions:", flush=True)
     print("  * Select text in any window and press Ctrl + Shift + J.", flush=True)
-    print("  * A floating speech-bubble appears above your active app.", flush=True)
-    print("  * Pinned topmost: stays visible even when clicking VS Code.", flush=True)
-    print("  * Drag the bubble header to reposition it anywhere.", flush=True)
-    print("  * Click [X] or 'Close' to dismiss the bubble.", flush=True)
-    print("  * Press Esc to exit the application completely.", flush=True)
+    print("  * A compact floating panel displays a concise AI response.", flush=True)
+    print("  * Drag anywhere on the panel to reposition it.", flush=True)
+    print("  * Press Esc or click [X] to dismiss the panel.", flush=True)
+    print("  * Click 'Exit' or right-click to exit completely.", flush=True)
     print("=" * 60 + "\n", flush=True)
 
     root = tk.Tk()
     app = FloatingBubbleWindow(root)
+
+    # Non-blocking startup prerequisite check
+    def _run_prereq_check():
+        status, msg = check_ollama_prerequisites()
+        if status != "ready":
+            ui_queue.put(("startup_notice", {"status": status, "message": msg}))
+
+    threading.Thread(target=_run_prereq_check, daemon=True).start()
 
     try:
         keyboard_listener = keyboard.Listener(
@@ -1224,7 +1316,7 @@ def main():
         keyboard_listener.start()
     except Exception as error:
         print(f"\n[Error] Failed to start keyboard listener: {error}", flush=True)
-        print("Please ensure your terminal has appropriate permissions to monitor keyboard input.", flush=True)
+        print("Please ensure your system has appropriate permissions to monitor keyboard input.", flush=True)
         return
 
     try:
