@@ -116,8 +116,8 @@ class TestFloatingBubbleWindow(unittest.TestCase):
             pass
 
     def test_window_properties(self):
-        self.assertEqual(self.app.width, 480)
-        self.assertEqual(self.app.height, 270)
+        self.assertEqual(self.app.width, 440)
+        self.assertEqual(self.app.height, 190)
         self.assertTrue(hasattr(self.app, "canvas"))
         self.assertTrue(hasattr(self.app, "bubble_polygon"))
         self.assertTrue(hasattr(self.app, "content_frame"))
@@ -136,30 +136,32 @@ class TestFloatingBubbleWindow(unittest.TestCase):
     def test_show_generating_state(self):
         self.app.show_generating("Sample test code snippet", intent="-code")
         status_text = self.app.header_status.cget("text")
-        self.assertIn("-code", status_text)
-        self.assertEqual(self.app.sel_label.cget("text"), "'Sample test code snippet'")
+        self.assertIn("Code", status_text)
+        # Selected text must not be displayed as quoted input
+        self.assertEqual(self.app.sel_label.cget("text"), "")
         content = self.app.text_area.get("1.0", tk.END)
         self.assertIn("Thinking", content)
 
     def test_show_explanation_state(self):
         self.app.show_explanation("Sample query", "Sample answer generated.", intent="-explain")
         status_text = self.app.header_status.cget("text")
-        self.assertIn("-explain", status_text)
-        self.assertEqual(self.app.sel_label.cget("text"), "'Sample query'")
+        self.assertIn("Explain", status_text)
+        # Selected text must not be displayed as quoted input
+        self.assertEqual(self.app.sel_label.cget("text"), "")
         content = self.app.text_area.get("1.0", tk.END)
         self.assertIn("Sample answer generated.", content)
 
     def test_show_error_state(self):
         self.app.show_error("Selected query", "Connection timed out.")
         status_text = self.app.header_status.cget("text")
-        self.assertIn("error", status_text)
+        self.assertIn("Error", status_text)
         content = self.app.text_area.get("1.0", tk.END)
         self.assertIn("Connection timed out.", content)
 
     def test_show_no_selection_state(self):
         self.app.show_no_selection()
         status_text = self.app.header_status.cget("text")
-        self.assertIn("$kya-ray", status_text)
+        self.assertIn("Notice", status_text)
         content = self.app.text_area.get("1.0", tk.END)
         self.assertIn("No text was selected", content)
 
