@@ -187,6 +187,8 @@ CLI_COMMANDS = {
     "git", "npm", "npx", "pip", "docker", "curl", "wget", "cd", "ls", "dir",
     "grep", "pytest", "python", "node", "cargo", "go", "kubectl", "make",
     "cat", "chmod", "chown", "sudo", "ssh", "powershell", "yarn", "pnpm",
+    "dotnet", "find", "apt", "brew", "deno", "rustc", "gcc", "tar", "sed",
+    "awk", "ps", "kill", "rm", "cp", "mv",
 }
 
 # Programming language keywords and patterns
@@ -238,7 +240,9 @@ INTENT_INSTRUCTIONS = {
     ),
     "-code": (
         "Explain what the following code or terminal command actually does in 1 to 2 complete sentences. "
-        "Identify likely syntax errors, misspelled module names, or typos (such as 'panadas' for 'pandas') and state the obvious correction. "
+        "Do not assume the input contains an error. If there is a clear, obvious syntax error or misspelled identifier "
+        "(such as 'panadas' for 'pandas'), note the typo and state the correction. "
+        "If the syntax is valid or no obvious error is found, explain the valid behavior without inventing errors or changes. "
         "The input is only provided as text: do not claim it was executed or run, and never invent command execution results, error messages, or reasons for failure. "
         "Finish cleanly without trailing off or starting an incomplete sentence."
     ),
@@ -295,6 +299,33 @@ def is_assignment_line(line):
     return False
 
 
+def is_single_line_code_assignment_or_call(text):
+    """
+    Checks if a single-line text represents a code assignment or instantiation,
+    such as 'app = FastAPI()' or 'client = MongoClient("localhost")',
+    distinguishing it from mathematical formulas like 'y = mx + b' or 'f(x) = x^2'.
+    """
+    stripped = text.strip().rstrip(";")
+    if "\n" in stripped or "=" not in stripped:
+        return False
+    if "==" in stripped or "!=" in stripped or "<=" in stripped or ">=" in stripped:
+        return False
+
+    parts = stripped.split("=", 1)
+    lhs = parts[0].strip()
+    rhs = parts[1].strip()
+
+    if not (lhs.isidentifier() or all(part.isidentifier() for part in lhs.split("."))):
+        return False
+
+    if "(" in rhs and rhs.endswith(")"):
+        func_token = rhs.split("(", 1)[0].strip()
+        if func_token.isidentifier() or all(part.isidentifier() for part in func_token.split(".")):
+            return True
+
+    return False
+
+
 def infer_intent(text):
     """
     Infers the user's intended task from the highlighted content without
@@ -332,7 +363,8 @@ def infer_intent(text):
         ("===" in raw) or
         ("!==" in raw) or
         ("{" in raw and "}" in raw and "\n" in raw) or
-        (raw.endswith(";") and ("=" in raw or "(" in raw))
+        (raw.endswith(";") and ("=" in raw or "(" in raw)) or
+        is_single_line_code_assignment_or_call(raw)
     )
     if has_code_symbols:
         return "-code"
@@ -491,6 +523,7 @@ def request_ai_explanation(text, intent=None):
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,  # Request the complete response at once
+        "think": False,
         "options": {
             "num_predict": 90,
             "temperature": 0.1,
