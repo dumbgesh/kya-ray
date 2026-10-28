@@ -23,7 +23,7 @@ The AI Response Engine coordinates communication with local AI language models. 
 ## Current Implementation (Verified in Codebase)
 
 ### Architecture
-Implemented in [`prototype/main.py`](../prototype/main.py#L129-L185) via `request_ai_explanation(text)` and `sanitize_ollama_metrics()`.
+Implemented in [`prototype/main.py`](../prototype/main.py#L293-L352) via `request_ai_explanation(text, intent=None)`, `build_intent_prompt()`, `infer_intent()`, and `sanitize_ollama_metrics()`.
 
 ### Technical Parameters
 - **Target Endpoint**: `http://127.0.0.1:11434/api/generate` (`OLLAMA_API_URL`)
@@ -33,27 +33,28 @@ Implemented in [`prototype/main.py`](../prototype/main.py#L129-L185) via `reques
 - **Request Timeout**: 30 seconds (`REQUEST_TIMEOUT_SECONDS = 30`).
 - **Streaming Setting**: `stream: False` (waits for full response payload before returning).
 - **Keep-Alive Setting**: **Omitted** in the current prototype (relies on Ollama's default 5-minute idle unload policy).
-- **Generation Options**: Unconfigured (defaults to Ollama defaults for temperature `~0.8` and unbounded `num_predict`).
+- **Generation Options**: `{"num_predict": 45}` to budget generation tokens and prevent run-away latency.
 
 ### Request Payload Structure
 ```python
+prompt = build_intent_prompt(text, intent)
 payload = {
     "model": "llama3.2:1b",
-    "prompt": (
-        "Explain the following selected text concisely and in simple, beginner-friendly terms "
-        f"(2 to 3 sentences max):\n\n\"{text.strip()}\""
-    ),
+    "prompt": prompt,
     "stream": False,
+    "options": {
+        "num_predict": 45,
+    },
 }
 ```
 
 ### Return Signature & Thread Safety
-`request_ai_explanation()` returns a 3-tuple:
+`request_ai_explanation()` returns an `ExplanationResponse` object (subclassing `tuple` for 100% backward compatibility):
 ```python
-(success: bool, content: str, metrics: dict | None)
+(success: bool, content: str, metrics: dict | None) # with .intent property
 ```
-- If successful: `(True, explanation_text, numeric_metrics_dict)`
-- If failed: `(False, friendly_error_message, None)`
+- If successful: `ExplanationResponse(True, response_text, numeric_metrics_dict, intent=intent)`
+- If failed: `ExplanationResponse(False, friendly_error_message, None, intent=intent)`
 
 There is **zero shared mutable state**. Each worker thread holds its own response and metrics directly on the call stack, ensuring complete thread safety across concurrent or rapid hotkey invocations.
 
@@ -86,9 +87,9 @@ The helper `sanitize_ollama_metrics()` enforces that only non-negative numbers a
 
 | Capability | Current Prototype | Target Engine Specification |
 | :--- | :--- | :--- |
-| **Prompt Routing** | Single hardcoded explanation prompt. | Multi-intent prompt registry mapped to [03-hyphen-features.md](03-hyphen-features.md). |
+| **Prompt Routing** | Context-aware prompt dispatching for 4 core intents (`-explain`, `-summarize`, `-code`, `-create`). | Complete multi-intent prompt registry mapped to all 8 intents in [03-hyphen-features.md](03-hyphen-features.md). |
 | **Output Streaming** | Blocking (`stream: False`), blocks until completion. | Token streaming (`stream: True`) to achieve instantaneous time-to-first-token in the UI. |
-| **Token Budgeting** | Unbounded `num_predict`. | Explicit `num_predict` caps per intent (e.g., 45 tokens for explain, 120 for summarize). |
+| **Token Budgeting** | Experimental `num_predict: 45` limit. | Dynamic `num_predict` caps per intent (e.g., 45 tokens for explain, 120 for summarize). |
 | **Model Residency** | Default `keep_alive` (unloads after 5m). | Explicit `keep_alive: "10m"` or configurable background residency. |
 | **Sampling Parameters** | Default temperature. | Intent-specific temperature (e.g., `0.2` for code, `0.7` for creative writing). |
 
@@ -99,9 +100,9 @@ The helper `sanitize_ollama_metrics()` enforces that only non-negative numbers a
 - [x] Handles service downtime, missing models, and request timeouts gracefully.
 - [x] Dispatches requests non-blockingly on background threads.
 - [x] Extracts and sanitizes numeric server telemetry.
+- [x] Dynamically inject prompt templates matching the inferred intent (`Implemented` for 4 core intents).
 - [ ] Support token streaming directly into the floating bubble UI (`Planned`).
-- [ ] Dynamically inject prompt templates matching the inferred intent (`Planned`).
-- [ ] Configure `keep_alive` and `num_predict` to maintain tight latency budgets (`Planned`).
+- [ ] Configure `keep_alive` and dynamic per-intent `num_predict` budgets (`Planned`).
 
 ---
 
