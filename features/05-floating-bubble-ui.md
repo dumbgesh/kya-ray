@@ -11,7 +11,7 @@ The Floating Bubble UI is Kya-Ray's visual surface. It delivers contextual expla
 ---
 
 ## User Experience
-1. **Trigger**: The user highlights content and triggers the hotkey (`Ctrl + Shift + J`).
+1. **Trigger**: The user highlights content and triggers the hotkey (`Ctrl + Alt + Space`).
 2. **Contextual Placement**: A sleek, dark speech-bubble card smoothly appears adjacent to the user's mouse cursor, pinned above the active application.
 3. **In-Flight Feedback**: While inference runs, the header badge shows `"Thinking with llama3.2:1b..."` and displays a truncated preview of the selection.
 4. **Answer Delivery**: Once generation finishes, the status updates to `"Ready"` (green accent), and the explanation appears formatted cleanly in the content pane.
