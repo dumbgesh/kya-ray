@@ -73,6 +73,9 @@ REQUEST_TIMEOUT_SECONDS = 30
 
 # Sets of modifier keys to track (supports both left and right keys)
 CTRL_KEYS = {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}
+ALT_KEYS = {keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r}
+if hasattr(keyboard.Key, "alt_gr"):
+    ALT_KEYS.add(keyboard.Key.alt_gr)
 SHIFT_KEYS = {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}
 
 # State variables for hotkey handling
@@ -904,7 +907,7 @@ class FloatingBubbleWindow:
         self.text_area.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         self.text_area.insert(
             tk.END,
-            "Select text in any window and press Ctrl + Shift + J.\n\n"
+            "Select text in any window and press Ctrl + Alt + Space.\n\n"
             "Kya-Ray will provide a concise answer directly here.",
         )
         self.text_area.config(state=tk.DISABLED)
@@ -1049,7 +1052,7 @@ class FloatingBubbleWindow:
         self.text_area.insert(
             tk.END,
             "No text was selected.\n\n"
-            "Please highlight some text in any window and press Ctrl + Shift + J."
+            "Please highlight some text in any window and press Ctrl + Alt + Space."
         )
         self.text_area.config(state=tk.DISABLED)
 
@@ -1065,7 +1068,7 @@ class FloatingBubbleWindow:
         self.text_area.insert(
             tk.END,
             f"{message}\n\n"
-            "Kya-Ray is active in the background. Press Ctrl + Shift + J once ready."
+            "Kya-Ray is active in the background. Press Ctrl + Alt + Space once ready."
         )
         self.text_area.config(state=tk.DISABLED)
 
@@ -1081,7 +1084,7 @@ class FloatingBubbleWindow:
     def hide_window(self):
         """Hides the panel when dismissed by the user."""
         self.root.withdraw()
-        print("Panel dismissed. Press Ctrl + Shift + J to show it again, or click Exit to quit.", flush=True)
+        print("Panel dismissed. Press Ctrl + Alt + Space to show it again, or click Exit to quit.", flush=True)
 
     def on_exit(self):
         """Cleanly terminates the application when exiting."""
@@ -1132,28 +1135,33 @@ ResponseWindow = FloatingBubbleWindow
 # Keyboard & Shortcut Detection (V1 - V2)
 # ==============================================================================
 
-def is_j_key(key):
+def is_space_key(key):
     """
-    Check if a key event represents the letter 'J'.
-    On Windows, when Ctrl is held down, pynput often translates 'J'
-    into a control character ('\n', ASCII 10) instead of 'j'.
-    We check both the virtual key code (vk=74) and character representations.
+    Checks if a key event represents the Space key.
+    Handles pynput Key.space, character ' ', and Windows virtual key code (VK_SPACE = 32).
     """
+    if key == keyboard.Key.space:
+        return True
     if isinstance(key, keyboard.KeyCode):
-        if getattr(key, "vk", None) == ord("J"):
+        if getattr(key, "vk", None) == 32:
             return True
-        if key.char is not None and key.char.lower() in ("j", "\n"):
+        if key.char == " ":
             return True
     return False
 
 
 def is_shortcut_key(key):
-    """Check if the given key is part of our shortcut combination."""
-    if key in CTRL_KEYS or key in SHIFT_KEYS:
+    """Check if the given key is part of our shortcut combination (Ctrl + Alt + Space)."""
+    if key in CTRL_KEYS or key in ALT_KEYS:
         return True
-    if is_j_key(key):
+    if is_space_key(key):
         return True
     return False
+
+
+def is_j_key(key):
+    """Deprecated alias preserved for backward compatibility."""
+    return is_space_key(key)
 
 
 def capture_selected_text():
@@ -1176,7 +1184,12 @@ def capture_selected_text():
         pyperclip.copy("")
         time.sleep(0.02)
 
-        # Temporarily release Shift so the active app registers 'Ctrl + C'
+        # Temporarily release Alt and Shift so the active application registers clean 'Ctrl + C'
+        keyboard_controller.release(keyboard.Key.alt)
+        keyboard_controller.release(keyboard.Key.alt_l)
+        keyboard_controller.release(keyboard.Key.alt_r)
+        if hasattr(keyboard.Key, "alt_gr"):
+            keyboard_controller.release(keyboard.Key.alt_gr)
         keyboard_controller.release(keyboard.Key.shift)
         keyboard_controller.release(keyboard.Key.shift_l)
         keyboard_controller.release(keyboard.Key.shift_r)
@@ -1203,7 +1216,7 @@ def capture_selected_text():
 
 def process_shortcut_event(run_id=None):
     """
-    Runs in a background thread when Ctrl + Shift + J is triggered.
+    Runs in a background thread when Ctrl + Alt + Space is triggered.
     Steps:
     1. Captures selected text without blocking the UI.
     2. If no text is selected, tells the UI to notify the user.
@@ -1214,7 +1227,7 @@ def process_shortcut_event(run_id=None):
     if run_id is not None:
         emit_profile_event("activation_started", run_id)
 
-    print("\n--- Shortcut detected: Ctrl + Shift + J ---", flush=True)
+    print("\n--- Shortcut detected: Ctrl + Alt + Space ---", flush=True)
 
     if run_id is not None:
         emit_profile_event("text_capture_started", run_id)
@@ -1283,10 +1296,10 @@ def on_press(key):
     pressed_keys.add(key)
 
     ctrl_held = any(k in pressed_keys for k in CTRL_KEYS)
-    shift_held = any(k in pressed_keys for k in SHIFT_KEYS)
-    j_pressed_now = is_j_key(key)
+    alt_held = any(k in pressed_keys for k in ALT_KEYS)
+    space_pressed_now = is_space_key(key)
 
-    if ctrl_held and shift_held and j_pressed_now:
+    if ctrl_held and alt_held and space_pressed_now:
         if not shortcut_triggered:
             shortcut_triggered = True
             # Assign unique run ID explicitly for this activation
@@ -1323,7 +1336,7 @@ def main():
     print("Kya-Ray - Context-Aware Desktop Companion", flush=True)
     print("=" * 60, flush=True)
     print("Instructions:", flush=True)
-    print("  * Select text in any window and press Ctrl + Shift + J.", flush=True)
+    print("  * Select text in any window and press Ctrl + Alt + Space.", flush=True)
     print("  * A compact floating panel displays a concise AI response.", flush=True)
     print("  * Drag anywhere on the panel to reposition it.", flush=True)
     print("  * Press Esc or click [X] to dismiss the panel.", flush=True)
