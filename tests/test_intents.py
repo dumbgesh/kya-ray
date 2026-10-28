@@ -56,6 +56,23 @@ class TestIntentInference(unittest.TestCase):
             "import os\nfrom pathlib import Path",
             "let items = [1, 2, 3]; items.map(x => x * 2);",
             "try:\n    perform_action()\nexcept ValueError as err:\n    pass",
+            "app = FastAPI();",
+        ]
+        for snippet in cases:
+            with self.subTest(snippet=snippet):
+                self.assertEqual(infer_intent(snippet), "-code")
+
+    def test_infer_code_multiline_typed_declarations(self):
+        """Verifies multiline typed variable declarations and arithmetic without requiring semicolons."""
+        cases = [
+            "int a = 1\nint b = 10\nint sum\nsum = a + b\nprint('sum)",
+            "int x = 42\nint y = 58\nint total = x + y",
+            "float rate = 0.05\nfloat principal = 1000.0\nfloat interest = principal * rate",
+            "double balance = 500.25;\ndouble withdrawal = 40.00;",
+            "bool is_valid = true\nbool has_access = false",
+            "char letter = 'k'\nchar next = 'y'",
+            "void execute_task(int count)",
+            "val items = listOf(1, 2, 3)\nval total = items.sum()",
         ]
         for snippet in cases:
             with self.subTest(snippet=snippet):
@@ -126,6 +143,25 @@ class TestIntentInference(unittest.TestCase):
         self.assertEqual(infer_intent("yield"), "-explain")
         self.assertEqual(infer_intent("closure"), "-explain")
 
+    def test_infer_explain_prose_negative_cases(self):
+        """
+        Negative tests: Ensures ordinary prose containing words like 'international'
+        or 'integral' is not falsely classified as -code.
+        """
+        cases = [
+            "International relations and foreign policy in Europe",
+            "An integral part of software development is automated testing.",
+            "Interior design trends for modern startup offices",
+            "Integration testing across microservices architectures",
+            "Interview questions for senior backend engineering roles",
+            "Intellectual property law protecting software patents",
+            "Introduction to database indexing and query optimization",
+            "Internal communication within engineering teams",
+        ]
+        for prose in cases:
+            with self.subTest(prose=prose):
+                self.assertEqual(infer_intent(prose), "-explain")
+
     def test_manual_regression_cases(self):
         """Verifies the five observed manual test inputs from user verification."""
         dw_etl_paragraph = (
@@ -175,10 +211,13 @@ class TestPromptConstruction(unittest.TestCase):
 
     def test_prompt_instructions_constraints(self):
         """Verifies specific reliability guidance rules in intent prompt instructions."""
-        # -code must explicitly instruct not to claim execution or invent failures
+        # -code must place syntax error / typo correction guidance near the beginning
         code_inst = INTENT_INSTRUCTIONS["-code"].lower()
         self.assertIn("not claim", code_inst)
         self.assertIn("executed", code_inst)
+        self.assertIn("syntax error", code_inst)
+        self.assertIn("misspelled", code_inst)
+        self.assertLess(code_inst.find("syntax error"), 160)
 
         # -summarize must guide finishing in 1 to 2 sentences without trailing off
         summ_inst = INTENT_INSTRUCTIONS["-summarize"].lower()
