@@ -598,6 +598,193 @@ class TestCodeDiagnosticsAndReliability(unittest.TestCase):
         self.assertEqual(strip_surrounding_quotes('He said, "Hello!"'), 'He said, "Hello!"')
 
 
+class TestCreateIntentRefinement(unittest.TestCase):
+    """
+    Verifies focused refinement to Kya-Ray's -create intent:
+    1. For simple, singular creation requests, defaults to one finished output.
+    2. Avoids conversational preambles such as 'I\'d be happy to...' or 'Here is...'.
+    3. Respects explicit quantities (e.g. 3 options when requested).
+    4. Ensures generated responses end cleanly without trailing fragments.
+    5. Preserves normal behavior for -explain, -summarize, and -code.
+    """
+
+    def test_detect_create_quantity_singular(self):
+        try:
+            from prototype.main import detect_create_quantity
+        except ImportError:
+            self.fail("detect_create_quantity must be defined in prototype.main")
+
+        singular_cases = [
+            "give me a cute pickup line",
+            "Give me a cute pickup line",
+            "write an email to my manager asking for leave",
+            "draft a concise announcement for v2.0",
+            "suggest a name for my open-source project",
+            "compose an apology note to a friend",
+            "come up with a catchy title for my blog post",
+            "write one slogan for our coffee company",
+        ]
+        for text in singular_cases:
+            with self.subTest(text=text):
+                qty, is_multiple = detect_create_quantity(text)
+                self.assertEqual(qty, 1)
+                self.assertFalse(is_multiple)
+
+    def test_detect_create_quantity_explicit_multiple(self):
+        try:
+            from prototype.main import detect_create_quantity
+        except ImportError:
+            self.fail("detect_create_quantity must be defined in prototype.main")
+
+        multi_cases = [
+            ("give me three reasons to learn Rust", 3),
+            ("give me 3 pickup lines", 3),
+            ("make a list of 5 healthy snacks for office workers", 5),
+            ("suggest two options for our brand tagline", 2),
+            ("give me ten ideas for weekend projects", 10),
+        ]
+        for text, expected_qty in multi_cases:
+            with self.subTest(text=text):
+                qty, is_multiple = detect_create_quantity(text)
+                self.assertEqual(qty, expected_qty)
+                self.assertTrue(is_multiple)
+
+    def test_detect_create_quantity_general_list(self):
+        try:
+            from prototype.main import detect_create_quantity
+        except ImportError:
+            self.fail("detect_create_quantity must be defined in prototype.main")
+
+        list_cases = [
+            "make a list of key performance metrics",
+            "give me a few suggestions for breakfast",
+            "suggest several alternatives to SQLite",
+            "give me some options for wedding gifts",
+        ]
+        for text in list_cases:
+            with self.subTest(text=text):
+                qty, is_multiple = detect_create_quantity(text)
+                self.assertTrue(is_multiple)
+
+    def test_strip_conversational_preamble(self):
+        try:
+            from prototype.main import strip_conversational_preamble
+        except ImportError:
+            self.fail("strip_conversational_preamble must be defined in prototype.main")
+
+        cases = [
+            (
+                "I'd be happy to provide a cute pickup line. How about: 'Are you a magician? Everyone else disappears.'",
+                "'Are you a magician? Everyone else disappears.'",
+            ),
+            (
+                "Sure! Here is a cute pickup line: Are you a camera? Because I smile whenever I see you.",
+                "Are you a camera? Because I smile whenever I see you.",
+            ),
+            (
+                "Certainly! Here's an email draft:\nSubject: Vacation Request",
+                "Subject: Vacation Request",
+            ),
+            (
+                "Here is an example of a formal apology:\nDear Professor Smith,",
+                "Dear Professor Smith,",
+            ),
+            (
+                "Are you a magician? Everyone else disappears.",
+                "Are you a magician? Everyone else disappears.",
+            ),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw[:30]):
+                self.assertEqual(strip_conversational_preamble(raw), expected)
+
+    def test_extract_single_creation_output(self):
+        try:
+            from prototype.main import extract_single_creation_output
+        except ImportError:
+            self.fail("extract_single_creation_output must be defined in prototype.main")
+
+        # Numbered options should extract the first option
+        numbered = (
+            "1. Are you a magician? Because whenever I look at you, everyone else disappears.\n"
+            "2. Do you have a map? Because I just got lost in your eyes.\n"
+            "3. Are you a camera? Because every time I look at you, I smile."
+        )
+        self.assertEqual(
+            extract_single_creation_output(numbered),
+            "Are you a magician? Because whenever I look at you, everyone else disappears."
+        )
+
+        # Multi-paragraph with 'I\'d also suggest' should retain only the first option
+        paras = (
+            "Are you a magician? Because whenever I look at you, everyone else disappears.\n\n"
+            "I'd also suggest: Do you have a map? Because I just got lost in your eyes."
+        )
+        self.assertEqual(
+            extract_single_creation_output(paras),
+            "Are you a magician? Because whenever I look at you, everyone else disappears."
+        )
+
+    def test_create_prompt_instructions_singular_vs_multiple(self):
+        """Verifies prompt construction specifically steers model to 1 output for singular and N for multiple."""
+        singular_prompt = build_intent_prompt("give me a cute pickup line", "-create")
+        self.assertIn("ONE finished output", singular_prompt)
+        self.assertIn("conversational preamble", singular_prompt.lower())
+
+        multi_prompt = build_intent_prompt("give me three reasons to learn Rust", "-create")
+        self.assertIn("exactly 3 options", multi_prompt)
+        self.assertNotIn("ONE finished output", multi_prompt)
+
+    def test_other_intents_preserved_without_create_constraints(self):
+        """Verifies -explain, -summarize, and -code do not receive the single-output constraint."""
+        explain_prompt = build_intent_prompt("Explain what a pickup line is", "-explain")
+        self.assertNotIn("ONE finished output", explain_prompt)
+        self.assertIn("Explain the following selected text accurately", explain_prompt)
+
+        code_prompt = build_intent_prompt("app = FastAPI()", "-code")
+        self.assertNotIn("ONE finished output", code_prompt)
+        self.assertIn("Explain what the following code", code_prompt)
+
+        summ_prompt = build_intent_prompt("Long paragraph of text to summarize", "-summarize")
+        self.assertNotIn("ONE finished output", summ_prompt)
+        self.assertIn("Summarize the essential meaning", summ_prompt)
+
+    @patch("prototype.main.urllib.request.urlopen")
+    def test_request_ai_create_pickup_line_singular_default(self, mock_urlopen):
+        """Verifies singular pickup line request returns one finished line without conversational intro."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read.return_value = (
+            b'{"response": "I\'d be happy to provide a cute pickup line. How about: \\\"Are you a magician? Because whenever I look at you, everyone else disappears.\\\"\\n\\nI\'d also suggest: \\\"Do you have a map?\\\"", "eval_count": 25}'
+        )
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        res = request_ai_explanation("give me a cute pickup line")
+        self.assertTrue(res.success)
+        self.assertEqual(res.intent, "-create")
+        self.assertEqual(
+            res.content,
+            "Are you a magician? Because whenever I look at you, everyone else disappears."
+        )
+
+    @patch("prototype.main.urllib.request.urlopen")
+    def test_request_ai_create_explicit_multiple_preserved(self, mock_urlopen):
+        """Verifies explicit request for 3 reasons preserves all 3 options without collapsing to one."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read.return_value = (
+            b'{"response": "1. Memory safety without garbage collection.\\n2. Concurrency without data races.\\n3. Predictable high performance.", "eval_count": 30}'
+        )
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        res = request_ai_explanation("give me three reasons to learn Rust")
+        self.assertTrue(res.success)
+        self.assertEqual(res.intent, "-create")
+        self.assertIn("1. Memory safety", res.content)
+        self.assertIn("2. Concurrency", res.content)
+        self.assertIn("3. Predictable high performance", res.content)
+
+
 if __name__ == "__main__":
     unittest.main()
 
