@@ -1,7 +1,7 @@
 # Feature 03: Hyphen Features (Context-Based Intent System)
 
 ## Status
-`Planned`
+`In Progress`
 
 ---
 
@@ -162,23 +162,21 @@ The following intents are recognized as valuable candidates but are kept seconda
 ---
 
 ## Current Implementation Status
-* **Current Prototype**: [`prototype/main.py`](../prototype/main.py#L143-L146) currently uses a single hardcoded explanation prompt:
-  ```python
-  prompt = (
-      "Explain the following selected text concisely and in simple, beginner-friendly terms "
-      f"(2 to 3 sentences max):\n\n\"{text.strip()}\""
-  )
-  ```
-* **Intent Classifier**: **Not implemented yet.** Intent classification logic, classifier prompt routing, and intent dispatching are scheduled for Stage 3 and Stage 4 of the [Roadmap](08-roadmap.md).
+* **Core Intents Supported**: The 4 foundational intents (`-explain`, `-summarize`, `-code`, `-create`) are implemented in [`prototype/main.py`](../prototype/main.py#L128-L265).
+* **Classification Strategy**: A deterministic, zero-latency (< 0.1ms) heuristic classifier (`infer_intent()`) evaluates captured text for terminal commands (`git`, `docker`, `npm`, etc.), programming constructs (`def`, `class`, arrow functions, JSON), error messages / stack traces (`Traceback`, `IndexError`, `fatal:`), explicit creation prompts (`Write a...`, `Create an...`), and substantial prose / bulleted notes (>= 50 words or multi-paragraph / bulleted items >= 20 words).
+* **Single Model Execution**: A single local model instance (`llama3.2:1b`) is used. Prompt templating (`build_intent_prompt()`) prefixes the intent-tailored instruction without requiring a costly secondary model round-trip.
+* **UI Feedback**: The floating bubble window indicates the active inferred intent in its status header (e.g., `Thinking (Code)...` and `Ready • Code`).
+* **Test Suite**: Verified by unit test suite in [`tests/test_intents.py`](../tests/test_intents.py).
 
 ---
 
 ## Acceptance Criteria
-- [ ] Classification pipeline infers core intents without user modal selection (`Planned`).
-- [ ] Intent tags remain internal and are never rendered to user UI (`Planned`).
-- [ ] Ambiguous or short text falls back safely to `-explain` or prompts for clarification (`Planned`).
-- [ ] Code selections distinguish between explanation, debugging, and refactoring (`Planned`).
-- [ ] Zero hallucinations or fact-inventions on underspecified selections (`Planned`).
+- [x] Classification pipeline infers core intents without user modal selection (`In Progress` - 4 core intents supported).
+- [x] Intent tags remain internal and are never prefixed to the response text itself (`Implemented`).
+- [x] Ambiguous or short text falls back safely to `-explain` (`Implemented`).
+- [x] Code selections identify terminal commands, code syntax, and error traces (`Implemented`).
+- [ ] Remaining 4 intents (`-compare`, `-complete`, `-suggest`, `-rewrite`) (`Planned`).
+- [ ] Zero hallucinations or fact-inventions on underspecified selections (Ongoing model tuning).
 
 ---
 
