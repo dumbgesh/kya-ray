@@ -294,9 +294,8 @@ INTENT_INSTRUCTIONS = {
     ),
     "-create": (
         "Fulfill the following writing or drafting request directly and concisely. "
-        "Treat routine requests (such as illness notifications or assignment extension requests) as legitimate; "
-        "do not assume deception or refuse benign requests unless the text explicitly indicates dishonest intent. "
-        "Generate the requested text directly without conversational preamble, finishing cleanly without trailing off or starting an incomplete sentence."
+        "Treat requests as legitimate without deception. "
+        "Generate the requested text directly without conversational preamble, finishing cleanly without trailing off."
     ),
 }
 
@@ -387,6 +386,112 @@ def strip_surrounding_quotes(text):
             return stripped[1:-1].strip()
         if stripped.startswith('“') and stripped.endswith('”'):
             return stripped[1:-1].strip()
+    return stripped
+
+
+NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+CREATE_NOUNS_PATTERN = r"(?:reasons?|options?|ideas?|examples?|lines?|items?|ways?|points?|alternatives?|variations?|titles?|names?|prompts?|questions?|tips?|habits?|snacks?|quotes?|jokes?|messages?|replies?|sentences?|paragraphs?|words?)"
+
+
+def detect_create_quantity(text):
+    """
+    Determines requested quantity for creation prompts.
+    Returns (quantity: int | None, is_explicit_multiple: bool):
+      - Explicit quantity (e.g., '3 reasons', '5 healthy snacks') -> (N, True)
+      - Plural list or collection (e.g., 'a list of', 'a few', 'several') -> (None, True)
+      - Singular request (e.g., 'a cute pickup line', 'an email', default) -> (1, False)
+    """
+    raw = (text or "").strip().lower()
+
+    # Check for digit quantities with optional adjective (e.g. "3 pickup lines", "5 healthy snacks", "10 examples")
+    digit_match = re.search(r'\b(\d+)\s+(?:[a-z_\-]+\s+)?' + CREATE_NOUNS_PATTERN + r'\b', raw)
+    if digit_match:
+        return int(digit_match.group(1)), True
+
+    # Check for digit alone if preceded by command verbs (e.g. "give me 3", "list of 5")
+    digit_solo = re.search(r'\b(?:give me|list of|top|create|write)\s+(\d+)\b', raw)
+    if digit_solo:
+        return int(digit_solo.group(1)), True
+
+    # Check for number words with optional adjective (e.g. "three reasons", "two cute pickup lines", "five snacks")
+    word_pattern = r'\b(' + '|'.join(NUMBER_WORDS.keys()) + r')\s+(?:[a-z_\-]+\s+)?' + CREATE_NOUNS_PATTERN + r'\b'
+    word_match = re.search(word_pattern, raw)
+    if word_match:
+        qty = NUMBER_WORDS[word_match.group(1)]
+        return qty, (qty > 1)
+
+    word_solo = re.search(r'\b(?:give me|list of|top|create|write)\s+(' + '|'.join(NUMBER_WORDS.keys()) + r')\b', raw)
+    if word_solo:
+        qty = NUMBER_WORDS[word_solo.group(1)]
+        return qty, (qty > 1)
+
+    # Check for general plural or list indicators without specific count
+    if any(phrase in raw for phrase in ("a list of", "make a list", "give me a few", "give me some", "options for", "ideas for", "several", "multiple")):
+        return None, True
+
+    return 1, False
+
+
+def strip_conversational_preamble(text):
+    """
+    Removes common chatty conversational greetings and lead-in preambles
+    specifically from creative generation outputs (e.g. 'I\'d be happy to provide...',
+    'Here is a cute pickup line:').
+    Does not alter genuine content if no preamble is present.
+    """
+    if not text:
+        return text
+
+    stripped = text.strip()
+
+    pats = [
+        r"^(?:I'd|I would) be happy to (?:provide|suggest|give|write|help you with)[^.\n]*\.\s*(?:How about:\s*|Here(?:'s| is)[^:\n]*:\s*)?",
+        r"^(?:Sure|Certainly|Of course)[!.,]?\s*(?:Here(?:'s| is)[^:\n]*:?\s*)?",
+        r"^(?:Here(?:'s| is) (?:a|an|one|the) [^:\n]*:\s*)",
+        r"^(?:How about|What about):\s*",
+    ]
+    for pat in pats:
+        m = re.match(pat, stripped, flags=re.IGNORECASE)
+        if m:
+            remainder = stripped[m.end():].strip()
+            if remainder:
+                stripped = remainder
+
+    return stripped
+
+
+def extract_single_creation_output(text):
+    """
+    For simple, singular creation requests, ensures only one finished output is returned,
+    trimming redundant subsequent options or numbered lists.
+    """
+    if not text:
+        return text
+    stripped = text.strip()
+
+    # If format is "1. First line\n2. Second line..."
+    lines = stripped.splitlines()
+    if lines and (lines[0].startswith("1. ") or lines[0].startswith("1) ")):
+        first_item_lines = [lines[0][3:].strip()]
+        for line in lines[1:]:
+            if re.match(r"^\d+[\.\)]\s+", line.strip()):
+                break
+            if line.strip():
+                first_item_lines.append(line.strip())
+            else:
+                break
+        return " ".join(first_item_lines)
+
+    # If there are multiple paragraphs and paragraph 2 starts with "I'd also suggest" or "Another option"
+    paras = [p.strip() for p in stripped.split("\n\n") if p.strip()]
+    if len(paras) > 1 and any(paras[1].lower().startswith(p) for p in ("i'd also", "another option", "or you could say", "here is another", "second")):
+        return paras[0]
+
     return stripped
 
 
@@ -582,6 +687,26 @@ def build_intent_prompt(text, intent):
         diag = check_code_diagnostics(text)
         if diag.get("diagnostics_note"):
             extra_guidance = f"\n{diag['diagnostics_note']}"
+    elif intent == "-create":
+        qty, is_multiple = detect_create_quantity(text)
+        if not is_multiple and qty == 1:
+            extra_guidance = (
+                "\nProvide exactly ONE finished output directly without multiple options or alternatives. "
+                "Do not include conversational preamble. "
+                "Output only the created text, finishing cleanly with terminal punctuation."
+            )
+        elif is_multiple and qty is not None:
+            extra_guidance = (
+                f"\nProvide exactly {qty} options directly, respecting the requested quantity. "
+                "Do not include conversational preamble. "
+                "Output only the requested items directly, finishing cleanly."
+            )
+        else:
+            extra_guidance = (
+                "\nProvide the requested content directly and concisely. "
+                "Do not include conversational preamble. "
+                "Output only the requested items directly, finishing cleanly."
+            )
 
     return f"{prefix}{extra_guidance}\n\n\"{text.strip()}\""
 
@@ -712,6 +837,11 @@ def request_ai_explanation(text, intent=None):
                 raw_body = response.read().decode("utf-8")
                 parsed_json = json.loads(raw_body)
                 raw_explanation = parsed_json.get("response", "").strip()
+                if intent == "-create":
+                    raw_explanation = strip_conversational_preamble(raw_explanation)
+                    qty, is_multiple = detect_create_quantity(text)
+                    if not is_multiple and qty == 1:
+                        raw_explanation = extract_single_creation_output(raw_explanation)
                 cleaned_quotes = strip_surrounding_quotes(raw_explanation)
                 explanation = clean_truncated_sentence(cleaned_quotes)
                 metrics = sanitize_ollama_metrics(parsed_json)
