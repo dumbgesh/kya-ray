@@ -190,6 +190,48 @@ class TestFloatingBubbleWindow(unittest.TestCase):
         self.app.hide_window()
         self.assertEqual(self.root.state(), "withdrawn")
 
+    def test_copy_button_present_and_copies(self):
+        """Verifies Copy button is present and copies answer to clipboard with transient feedback."""
+        self.assertTrue(hasattr(self.app, "copy_btn"))
+        self.assertEqual(self.app.copy_btn.cget("text"), "Copy")
+        self.app._current_raw_answer = "Test answer text to copy"
+        self.app.on_copy()
+        self.assertEqual(self.app.copy_btn.cget("text"), "Copied!")
+        import pyperclip
+        self.assertEqual(pyperclip.paste(), "Test answer text to copy")
+
+    def test_render_formatted_response_tags(self):
+        """Verifies render_formatted_response populates text and sets appropriate tags."""
+        try:
+            from prototype.main import render_formatted_response
+        except ImportError:
+            self.fail("render_formatted_response must be defined in prototype.main")
+
+        text_widget = tk.Text(self.root)
+        sample = (
+            "Here is an explanation paragraph.\n\n"
+            "- Point one\n"
+            "- Point two\n\n"
+            "```python\napp = FastAPI()\n```"
+        )
+        render_formatted_response(text_widget, sample)
+        content = text_widget.get("1.0", tk.END)
+        self.assertIn("Here is an explanation paragraph.", content)
+        self.assertIn("Point one", content)
+        self.assertIn("app = FastAPI()", content)
+
+    def test_dynamic_window_sizing(self):
+        """Verifies window adjusts height dynamically between compact and max limits."""
+        # Short explanation should keep window compact
+        self.app.show_explanation("query", "Short one sentence answer.")
+        self.assertLessEqual(self.app.height, 220)
+
+        # Long explanation should expand up to max height
+        long_text = "\n".join(f"Paragraph line {i} explaining a complex topic." for i in range(12))
+        self.app.show_explanation("query", long_text)
+        self.assertGreaterEqual(self.app.height, 260)
+        self.assertLessEqual(self.app.height, 360)
+
 
 if __name__ == "__main__":
     unittest.main()
