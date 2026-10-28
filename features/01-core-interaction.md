@@ -13,7 +13,7 @@ The Core Interaction system provides an instant, universal gateway for invoking 
 ## User Experience
 1. A user is working inside any desktop application (web browser, code editor, PDF viewer, document editor).
 2. The user highlights content on their screen.
-3. The user presses **`Ctrl + Shift + J`**.
+3. The user presses **`Ctrl + Alt + Space`**.
 4. The active application is not interrupted, and Kya-Ray immediately acknowledges the input by showing a lightweight floating bubble with a "Thinking..." status indicator.
 5. If the user presses **`Esc`** at any point, Kya-Ray terminates cleanly and releases all OS hooks.
 6. If the user clicks the **`✕`** (close) icon on the bubble header, the bubble disappears, remaining ready for the next hotkey invocation.
@@ -22,7 +22,7 @@ The Core Interaction system provides an instant, universal gateway for invoking 
 
 ## Intended Behaviour
 - **Global Accessibility**: The shortcut must trigger regardless of which window, screen, or application currently holds OS focus.
-- **Repeat Suppression (Debounce)**: Holding down `Ctrl + Shift + J` must trigger exactly one activation event, not an uncontrolled flood of repeated inferences.
+- **Repeat Suppression (Debounce)**: Holding down `Ctrl + Alt + Space` must trigger exactly one activation event, not an uncontrolled flood of repeated inferences.
 - **Modifier Agnosticism**: Both left and right variants of modifier keys (`Ctrl_L`, `Ctrl_R`, `Shift_L`, `Shift_R`) must be accepted seamlessly.
 - **Non-Blocking Operation**: The hotkey handler must immediately delegate downstream tasks (clipboard capture, inference, UI rendering) to background daemon threads so the keyboard hook remains responsive.
 - **Graceful Failure Handling**: If global keyboard listening fails (e.g., due to insufficient OS privileges or an input hooking conflict), Kya-Ray must exit with a clear, user-actionable terminal error instead of hanging or crashing silently.
@@ -54,7 +54,7 @@ Implemented in [`prototype/main.py`](../prototype/main.py#L23-L65).
 
 | Dimension | Current Prototype | Desired Production Behaviour |
 | :--- | :--- | :--- |
-| **Shortcut Configuration** | Hardcoded to `Ctrl + Shift + J`. | User-configurable hotkey via configuration file or settings dialog. |
+| **Shortcut Configuration** | Hardcoded to `Ctrl + Alt + Space`. | User-configurable hotkey via configuration file or settings dialog. |
 | **Runtime Persistence** | Foreground console process; closes when terminal closes. | Background tray application with autostart and silent background execution. |
 | **Elevation & Focus** | Fails to detect hotkeys or capture text if the active window is running with Administrator privileges (Windows UIPI). | Graceful privilege elevation or clear notification when operating over elevated windows. |
 | **Multi-Monitor Cursor Anchoring** | Assumes primary display geometry for screen clamping. | Multi-monitor DPI-aware display positioning. |
@@ -63,7 +63,7 @@ Implemented in [`prototype/main.py`](../prototype/main.py#L23-L65).
 ---
 
 ## Acceptance Criteria
-- [x] Pressing `Ctrl + Shift + J` detects hotkey accurately on Windows using virtual key code `vk=74`.
+- [x] Pressing `Ctrl + Alt + Space` detects hotkey accurately on Windows using virtual key code `vk=74`.
 - [x] Supports both left and right `Ctrl` and `Shift` keys.
 - [x] Holding the keys triggers only one single activation run.
 - [x] Pressing `Esc` exits the application cleanly and terminates listener threads.
@@ -91,5 +91,5 @@ Implemented in [`prototype/main.py`](../prototype/main.py#L23-L65).
 ---
 
 ## Open Questions
-- **Open question**: Should `Ctrl + Shift + J` remain the permanent default, or should Kya-Ray adopt a configurable single-modifier global shortcut (e.g., `Alt + Space`, `Win + K`)?
+- **Open question**: Should `Ctrl + Alt + Space` remain the permanent default, or should Kya-Ray adopt a configurable single-modifier global shortcut (e.g., `Alt + Space`, `Win + K`)?
 - **Open question**: Should pressing `Esc` close the entire application, or should `Esc` merely dismiss the active bubble when visible, requiring a tray menu action to exit completely?
