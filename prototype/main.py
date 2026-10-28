@@ -269,6 +269,12 @@ EXPLAIN_QUESTION_PREFIXES = (
     "tell me about ", "define ",
 )
 
+# Directives identifying explicit summarize requests
+SUMMARIZE_TRIGGERS = (
+    "summarize ", "summarise ", "summary of ", "tl;dr", "tldr",
+    "give me a summary of", "provide a summary of", "briefly summarize",
+)
+
 INTENT_INSTRUCTIONS = {
     "-explain": (
         "Explain the following selected text accurately in simple, beginner-friendly language in 1 to 2 complete sentences. "
@@ -465,10 +471,18 @@ def strip_conversational_preamble(text):
     return stripped
 
 
+ALTERNATIVE_LEAD_INS = (
+    "i'd also", "i would also", "another option", "or you could say",
+    "here is another", "second option", "alternatively,", "alternatively:",
+    "or alternatively", "here's another",
+)
+
+
 def extract_single_creation_output(text):
     """
     For simple, singular creation requests, ensures only one finished output is returned,
-    trimming redundant subsequent options or numbered lists.
+    trimming redundant subsequent options or numbered lists while preserving multi-paragraph
+    content (e.g., multi-paragraph emails or essays).
     """
     if not text:
         return text
@@ -487,12 +501,16 @@ def extract_single_creation_output(text):
                 break
         return " ".join(first_item_lines)
 
-    # If there are multiple paragraphs and paragraph 2 starts with "I'd also suggest" or "Another option"
+    # If there are multiple paragraphs and any subsequent paragraph starts with an alternative lead-in
     paras = [p.strip() for p in stripped.split("\n\n") if p.strip()]
-    if len(paras) > 1 and any(paras[1].lower().startswith(p) for p in ("i'd also", "another option", "or you could say", "here is another", "second")):
-        return paras[0]
+    if len(paras) > 1:
+        for idx in range(1, len(paras)):
+            p_lower = paras[idx].lower().strip()
+            if any(p_lower.startswith(lead) for lead in ALTERNATIVE_LEAD_INS):
+                return "\n\n".join(paras[:idx])
 
     return stripped
+
 
 
 def check_code_diagnostics(text):
@@ -649,7 +667,11 @@ def infer_intent(text):
         if code_signal_lines >= 2:
             return "-code"
 
-    # 3. Detect -create: explicit generation/creation directives (when not an explanatory question)
+    # 3. Detect explicit summarize directives (e.g. 'summarize this code', 'tl;dr', 'summary of')
+    if any(lower.startswith(trigger) for trigger in SUMMARIZE_TRIGGERS):
+        return "-summarize"
+
+    # 4. Detect -create: explicit generation/creation directives (when not an explanatory question)
     if not is_explanatory_question:
         for trigger in CREATE_TRIGGERS:
             if lower.startswith(trigger) or (word_count < 30 and (f" {trigger} " in f" {lower} " or lower.startswith(trigger))):
@@ -671,7 +693,7 @@ def infer_intent(text):
         return "-code"
 
     # B. Language keywords / syntax constructs in short snippets
-    if any(kw in raw for kw in CODE_KEYWORDS) or ("from " in raw and " import " in raw):
+    if not is_explanatory_question and (any(kw in raw for kw in CODE_KEYWORDS) or ("from " in raw and " import " in raw)):
         return "-code"
 
     # 6. Default to -explain (concepts, phrases, single words, definitions)
@@ -881,50 +903,28 @@ INTENT_DISPLAY_LABELS = {
 
 def get_system_theme():
     """
-    Detects Windows OS light/dark theme preference via registry.
-    Returns a dictionary of cohesive colors for the minimal floating panel.
+    Returns the consistent minimal light theme palette for Kya-Ray:
+    - Crisp white background (#ffffff)
+    - Dark, high-contrast body text (#0f172a)
+    - Restrained blue accent (#0284c7)
+    - Subtle border (#e2e8f0)
+    - Clean, readable typography
+    Enforces product identity reliably regardless of whether Windows OS is in dark mode.
     """
-    is_dark = False
-    try:
-        import winreg
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-        )
-        val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-        winreg.CloseKey(key)
-        is_dark = (val == 0)
-    except Exception:
-        is_dark = False
+    return {
+        "mode": "light",
+        "bubble_fill": "#ffffff",      # Clean white background
+        "outline": "#e2e8f0",          # Subtle border (slate-200)
+        "text": "#0f172a",             # Dark, high-contrast body text (slate-900)
+        "title": "#0284c7",            # Restrained blue accent (sky-600)
+        "tag": "#64748b",              # Muted slate-500
+        "code_bg": "#f8fafc",          # Very soft slate-50 background for code blocks
+        "code_inline_bg": "#f1f5f9",   # Soft slate-100 background for inline code
+        "close_btn": "#64748b",        # Slate-500
+        "close_hover": "#0284c7",      # Blue accent on hover
+        "trans_color": "#000001",      # Transparent color key
+    }
 
-    if is_dark:
-        return {
-            "mode": "dark",
-            "bubble_fill": "#18181b",      # Deep dark slate/zinc
-            "outline": "#334155",          # Restrained subtle outline
-            "text": "#f4f4f5",             # Clean light text
-            "title": "#38bdf8",            # Identity accent
-            "tag": "#94a3b8",              # Muted command/intent tag
-            "code_bg": "#27272a",          # Zinc-800 for code blocks
-            "code_inline_bg": "#27272a",   # Zinc-800 for inline code
-            "close_btn": "#71717a",        # Muted controls
-            "close_hover": "#38bdf8",      # Accent hover
-            "trans_color": "#000001",      # Transparent color key
-        }
-    else:
-        return {
-            "mode": "light",
-            "bubble_fill": "#ffffff",      # Clean white background
-            "outline": "#e2e8f0",          # Subtle border (slate-200)
-            "text": "#0f172a",             # Dark, high-contrast body text (slate-900)
-            "title": "#0284c7",            # Restrained blue accent (sky-600)
-            "tag": "#64748b",              # Muted slate-500
-            "code_bg": "#f8fafc",          # Very soft slate-50 background for code blocks
-            "code_inline_bg": "#f1f5f9",   # Soft slate-100 background for inline code
-            "close_btn": "#64748b",        # Slate-500
-            "close_hover": "#0284c7",      # Blue accent on hover
-            "trans_color": "#000001",      # Transparent color key
-        }
 
 
 def render_formatted_response(text_widget, text, theme=None):
@@ -938,6 +938,13 @@ def render_formatted_response(text_widget, text, theme=None):
     """
     text_widget.config(state=tk.NORMAL)
     text_widget.delete("1.0", tk.END)
+
+    if theme:
+        text_widget.tag_configure("body", font=("Segoe UI", 10), foreground=theme.get("text", "#0f172a"), spacing1=2, spacing3=3)
+        text_widget.tag_configure("bold", font=("Segoe UI", 10, "bold"), foreground=theme.get("text", "#0f172a"))
+        text_widget.tag_configure("bullet", font=("Segoe UI", 10), foreground=theme.get("text", "#0f172a"), lmargin1=16, lmargin2=28, spacing1=2, spacing3=2)
+        text_widget.tag_configure("code_inline", font=("Consolas", 9), foreground=theme.get("text", "#0f172a"), background=theme.get("code_inline_bg", "#f1f5f9"))
+        text_widget.tag_configure("code_block", font=("Consolas", 9), foreground=theme.get("text", "#0f172a"), background=theme.get("code_bg", "#f8fafc"), lmargin1=14, lmargin2=14, spacing1=4, spacing3=4)
 
     cleaned = strip_surrounding_quotes(text or "")
     if not cleaned:
