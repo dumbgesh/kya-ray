@@ -30,7 +30,7 @@ Every feature specification in this directory uses one of five standardized stat
 
 | ID | Document | Title | Current Status | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **01** | [01-core-interaction.md](01-core-interaction.md) | **Core Interaction** | `In Progress` | Global keyboard shortcut detection (`Ctrl + Shift + J`), activation lifecycle, and clean application shutdown. |
+| **01** | [01-core-interaction.md](01-core-interaction.md) | **Core Interaction** | `In Progress` | Global keyboard shortcut detection (`Ctrl + Alt + Space`), activation lifecycle, and clean application shutdown. |
 | **02** | [02-context-capture.md](02-context-capture.md) | **Context Capture** | `In Progress` | Non-blocking text capture from external applications via temporary clipboard bridge and clipboard restoration. |
 | **03** | [03-hyphen-features.md](03-hyphen-features.md) | **Hyphen Features (Intents)** | `In Progress` | Automatic context-based intent classification system (`-explain`, `-summarize`, `-code`, `-create`, etc.). |
 | **04** | [04-ai-response-engine.md](04-ai-response-engine.md) | **AI Response Engine** | `In Progress` | Local LLM inference via Ollama (`llama3.2:1b`), request lifecycle, prompt structure, and error containment. |
