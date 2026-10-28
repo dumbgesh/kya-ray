@@ -37,16 +37,17 @@ The Floating Bubble UI is Kya-Ray's visual surface. It delivers contextual expla
 Implemented in [`prototype/main.py`](../prototype/main.py#L185-L530) via class `FloatingBubbleWindow` (and backward compatibility alias `ResponseWindow`).
 
 ### Visual Styling & Geometry
-- **Window Framework**: Standard Python `tkinter.Tk`.
-- **Dimensions**: Fixed geometry of `440 x 290` pixels.
-- **Frameless Card**: Uses `root.overrideredirect(True)` to remove standard OS window frames and minimize visual clutter.
+- **Window Framework**: Standard Python `tkinter.Tk` with Canvas polygon rendering.
+- **Silhouette**: Rounded comic speech-bubble silhouette with a visible pointed tail (30px base, extending 25px below body) computed via `compute_bubble_polygon()`.
+- **Dimensions**: Fixed geometry of `440 x 310` pixels (bubble body + pointed tail).
+- **Frameless & Transparent**: Uses `root.overrideredirect(True)` and isolated Windows `-transparentcolor` keying (`#000001` with fallback) so the rectangular window corners are invisible.
 - **Z-Order Pinning**: Enforces `root.attributes("-topmost", True)` to remain visible above heavy development environments like VS Code.
 - **Color Palette**:
-  - Dark Slate background (`#1e293b`).
+  - Dark Slate bubble fill (`#1e293b`).
   - Darker contrasting header (`#0f172a`).
-  - Sky blue glowing 1px border (`#38bdf8`).
+  - Sky blue glowing 2px border outline (`#38bdf8`).
   - Typography: Windows native `Segoe UI` fonts with fixed sizes.
-- **Content Area**: Scrollable read-only text view (`scrolledtext.ScrolledText`) with custom dark color scheme and disabled keyboard editing.
+- **Content Area**: Scrollable read-only text view (`scrolledtext.ScrolledText`) embedded inside the bubble body bounds with disabled keyboard editing.
 
 ### Cursor Anchoring Algorithm
 ```python
