@@ -26,7 +26,7 @@ Before running Kya-Ray, please ensure you have:
 2. Ensure Ollama is running with `llama3.2:1b`.
 3. Double-click **`START_KYA_RAY.bat`** (or `Kya-Ray\Kya-Ray.exe`).
 4. Select any text in any application (browser, PDF, IDE, Word, Notepad).
-5. Press **`Ctrl + Shift + J`**.
+5. Press **`Ctrl + Alt + Space`**.
 6. A compact floating panel will appear near your selection with the AI-generated answer.
 
 ---
@@ -35,7 +35,7 @@ Before running Kya-Ray, please ensure you have:
 
 | Action | Control |
 | :--- | :--- |
-| **Trigger Kya-Ray** | `Ctrl + Shift + J` (with text selected) |
+| **Trigger Kya-Ray** | `Ctrl + Alt + Space` (with text selected) |
 | **Dismiss Panel** | Press `Esc` or click `✕` in top-right |
 | **Reposition Panel** | Click and drag anywhere on the panel |
 | **Context Menu** | Right-click anywhere on the panel |
