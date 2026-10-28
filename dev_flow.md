@@ -46,7 +46,17 @@
 - Smart screen positioning: anchors near active mouse cursor using Win32 `GetCursorPos` with screen clamping; falls back to upper-center.
 - Minimal controls: top-right '✕' dismiss button, bottom 'Close' button, and 'Esc' exit.
 - Preserved all V1–V5 keyboard shortcuts, text capture, clipboard restoration, and non-blocking Ollama inference.
-- Status: Implemented; automated tests passed; ready for manual testing.
+- Status: Completed and verified.
+
+## V7 — Comic Speech-Bubble UI
+- Replaced rectangular floating card with a comic-style speech-bubble silhouette featuring rounded corners and a visible pointed tail (`compute_bubble_polygon()`).
+- Seamless Canvas polygon drawing with dark slate fill (`#1e293b`) and glowing sky-blue border (`#38bdf8`).
+- Isolated Windows `-transparentcolor` keying (`#000001` with fallback) so corners outside the bubble silhouette are completely transparent to desktop windows.
+- Embedded container frame (`content_frame`) keeping header bar, status badge, text area, close controls, and hints neatly framed inside the bubble body.
+- Enhanced dragging with absolute screen offsets (`x_root - winfo_x()`) bound to both header and canvas for responsive repositioning.
+- Bound `Escape` on root window for instant clean exit.
+- Preserved all keyboard shortcuts (`Ctrl + Shift + J`), clipboard capture, background threading, queue communication, and local Ollama inference.
+- Status: Implemented, verified with unit tests and interaction suites.
 
 
 
