@@ -37,12 +37,16 @@ class TestIntentInference(unittest.TestCase):
         cases = [
             "git commit -m 'feat: add feature'",
             "$ git status",
+            "git status --short",
             "> npm install --save-dev typescript",
             "docker run -d -p 8080:80 nginx:alpine",
             "curl -X POST https://api.example.com/data",
             "pip install -r requirements.txt",
             "pytest tests/test_app.py",
             "ls -la /var/log/nginx",
+            "cargo build --release",
+            "dotnet run --project MyApp",
+            "find . -name '*.py'",
         ]
         for cmd in cases:
             with self.subTest(command=cmd):
@@ -57,6 +61,8 @@ class TestIntentInference(unittest.TestCase):
             "let items = [1, 2, 3]; items.map(x => x * 2);",
             "try:\n    perform_action()\nexcept ValueError as err:\n    pass",
             "app = FastAPI();",
+            "app = FastAPI()",
+            "client = MongoClient('localhost')",
         ]
         for snippet in cases:
             with self.subTest(snippet=snippet):
@@ -157,6 +163,10 @@ class TestIntentInference(unittest.TestCase):
             "Intellectual property law protecting software patents",
             "Introduction to database indexing and query optimization",
             "Internal communication within engineering teams",
+            "y = mx + b",
+            "f(x) = x^2 + 2x + 1",
+            "E = mc^2",
+            "A = pi * r^2",
         ]
         for prose in cases:
             with self.subTest(prose=prose):
@@ -211,13 +221,15 @@ class TestPromptConstruction(unittest.TestCase):
 
     def test_prompt_instructions_constraints(self):
         """Verifies specific reliability guidance rules in intent prompt instructions."""
-        # -code must place syntax error / typo correction guidance near the beginning
         code_inst = INTENT_INSTRUCTIONS["-code"].lower()
         self.assertIn("not claim", code_inst)
         self.assertIn("executed", code_inst)
         self.assertIn("syntax error", code_inst)
         self.assertIn("misspelled", code_inst)
-        self.assertLess(code_inst.find("syntax error"), 160)
+        # Must not presume every input has an error
+        self.assertIn("do not assume", code_inst)
+        self.assertIn("valid", code_inst)
+        self.assertIn("without inventing", code_inst)
 
         # -summarize must guide finishing in 1 to 2 sentences without trailing off
         summ_inst = INTENT_INSTRUCTIONS["-summarize"].lower()
@@ -347,12 +359,41 @@ class TestAnswerReliabilityRegression(unittest.TestCase):
         prompt = build_intent_prompt("import panadas as pd", "-code")
         self.assertIn('"import panadas as pd"', prompt)
         prompt_lower = prompt.lower()
-        self.assertIn("misspelled module names", prompt_lower)
+        self.assertIn("misspelled", prompt_lower)
         self.assertIn("panadas", prompt_lower)
         self.assertIn("pandas", prompt_lower)
-        self.assertIn("obvious correction", prompt_lower)
         self.assertIn("do not claim it was executed", prompt_lower)
         self.assertIn("never invent command execution results", prompt_lower)
+
+    def test_regression_valid_command_git_status_prompt(self):
+        """Verifies 'git status --short' prompt does not assume errors and instructs explaining valid syntax."""
+        prompt = build_intent_prompt("git status --short", "-code")
+        self.assertIn('"git status --short"', prompt)
+        prompt_lower = prompt.lower()
+        self.assertIn("do not assume", prompt_lower)
+        self.assertIn("valid", prompt_lower)
+        self.assertIn("without inventing", prompt_lower)
+
+    def test_regression_return_key_intent_and_prompt(self):
+        """Verifies 'return key' is categorized and prompted without assuming missing parentheses."""
+        intent = infer_intent("return key")
+        self.assertEqual(intent, "-code")
+        prompt = build_intent_prompt("return key", "-code")
+        prompt_lower = prompt.lower()
+        self.assertIn("do not assume", prompt_lower)
+        self.assertNotIn("missing parentheses", prompt_lower)
+
+    def test_regression_fastapi_valid_syntax(self):
+        """Verifies 'app = FastAPI()' is recognized as code without trailing semicolon."""
+        self.assertEqual(infer_intent("app = FastAPI()"), "-code")
+        prompt = build_intent_prompt("app = FastAPI()", "-code")
+        self.assertIn("without inventing", prompt.lower())
+
+    def test_regression_cap_theorem_prompt_accuracy(self):
+        """Verifies CAP theorem is prompted under -explain with accurate constraints."""
+        self.assertEqual(infer_intent("CAP theorem"), "-explain")
+        prompt = build_intent_prompt("CAP theorem", "-explain")
+        self.assertIn("accurately", prompt.lower())
 
     def test_regression_deterministic_clean_truncated_sentence(self):
         """Verifies deterministic post-processing cleans trailing incomplete sentence fragments."""
