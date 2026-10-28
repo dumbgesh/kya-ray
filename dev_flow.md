@@ -2,7 +2,7 @@
 # Kya-Ray Development Log
 
 ## V1 — Keyboard Shortcut
-- Detects `Ctrl + Shift + J`.
+- Detects `Ctrl + Alt + Space`.
 - Prevents repeated triggers while keys are held.
 - Press `Esc` to exit.
 - Status: Working and manually tested.
@@ -55,7 +55,7 @@
 - Embedded container frame (`content_frame`) keeping header bar, status badge, text area, close controls, and hints neatly framed inside the bubble body.
 - Enhanced dragging with absolute screen offsets (`x_root - winfo_x()`) bound to both header and canvas for responsive repositioning.
 - Bound `Escape` on root window for instant clean exit.
-- Preserved all keyboard shortcuts (`Ctrl + Shift + J`), clipboard capture, background threading, queue communication, and local Ollama inference.
+- Preserved all keyboard shortcuts (`Ctrl + Alt + Space`), clipboard capture, background threading, queue communication, and local Ollama inference.
 - Status: Implemented, verified with unit tests and interaction suites.
 
 
