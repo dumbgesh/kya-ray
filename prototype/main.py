@@ -1,8 +1,11 @@
+import ast
 import ctypes
 from ctypes import wintypes
+import difflib
 import json
 import math
 import queue
+import re
 import threading
 import time
 import tkinter as tk
@@ -220,11 +223,50 @@ CODE_ERROR_INDICATORS = (
     "error: ",
 )
 
+# Curated set of popular standard library and PyPI packages for deterministic typo detection
+POPULAR_PYTHON_MODULES = {
+    # Python Standard Library
+    "sys", "os", "math", "json", "re", "time", "datetime", "typing", "collections",
+    "itertools", "functools", "pathlib", "subprocess", "threading", "multiprocessing",
+    "asyncio", "unittest", "logging", "urllib", "socket", "http", "sqlite3", "csv",
+    "hashlib", "random", "io", "copy", "shutil", "tempfile", "glob", "pickle",
+    "struct", "ctypes", "inspect", "ast", "dis", "pdb", "traceback", "gc",
+    "contextlib", "dataclasses", "enum", "abc", "queue", "concurrent", "signal",
+    "decimal", "fractions", "statistics", "difflib", "textwrap", "unicodedata",
+    "email", "html", "xml", "zipfile", "tarfile", "gzip", "bz2", "lzma", "venv",
+    "shlex", "base64", "secrets", "uuid", "platform",
+    # Popular Third-Party Packages
+    "pandas", "numpy", "scipy", "matplotlib", "seaborn", "requests", "httpx",
+    "flask", "django", "fastapi", "uvicorn", "pydantic", "sqlalchemy", "pytest",
+    "torch", "torchvision", "torchaudio", "tensorflow", "keras", "sklearn",
+    "scikit-learn", "cv2", "pillow", "PIL", "yaml", "jinja2", "click", "rich",
+    "celery", "redis", "pika", "boto3", "botocore", "google", "openai",
+    "anthropic", "transformers", "datasets", "huggingface_hub", "polars",
+    "pyarrow", "playwright", "selenium", "beautifulsoup4", "bs4", "scrapy",
+    "networkx", "sympy", "tqdm", "pytz", "psutil", "alembic", "gevent", "wheel",
+    "setuptools", "dotenv", "watchdog", "paramiko", "cryptography", "pyperclip",
+    "pynput", "tkinter",
+}
+
 # Creation prompt trigger verbs and prefixes
 CREATE_TRIGGERS = (
-    "write a", "write an", "create a", "create an", "generate a", "generate an",
-    "draft a", "draft an", "make a list of", "build a", "build an", "compose a",
-    "compose an", "implement a", "implement an", "template for", "boilerplate for",
+    "write a", "write an", "write me a", "write me an", "write me",
+    "create a", "create an", "create me a", "create me an", "create me",
+    "generate a", "generate an", "draft a", "draft an", "draft me a",
+    "make a list of", "build a", "build an", "compose a", "compose an",
+    "implement a", "implement an", "template for", "boilerplate for",
+    "give me a", "give me an", "give me", "come up with", "suggest a",
+    "suggest an", "suggest", "rewrite a", "rewrite an", "rewrite this",
+    "rewrite as", "rewrite",
+)
+
+# Prefixes identifying explicit explanatory questions
+EXPLAIN_QUESTION_PREFIXES = (
+    "explain ", "explain how to ", "explain why ", "explain what ",
+    "what is ", "what are ", "what was ", "what were ",
+    "why is ", "why are ", "why do ", "why does ", "why did ",
+    "how do ", "how does ", "how can ", "how to ",
+    "tell me about ", "define ",
 )
 
 INTENT_INSTRUCTIONS = {
@@ -243,8 +285,9 @@ INTENT_INSTRUCTIONS = {
     ),
     "-code": (
         "Explain what the following code or terminal command actually does in 1 to 2 complete sentences. "
-        "Do not assume the input contains an error. If there is a clear, obvious syntax error or misspelled identifier "
-        "(such as 'panadas' for 'pandas'), note the typo and state the correction. "
+        "Do not assume the input contains an error. If there is a clear, obvious syntax error or misspelled identifier, "
+        "identify the typo and state the correction separately. "
+        "Do not silently normalize misspelled imports as if they were valid packages. "
         "If the syntax is valid or no obvious error is found, explain the valid behavior without inventing errors or changes. "
         "The input is only provided as text: do not claim it was executed or run, and never invent command execution results, error messages, or reasons for failure. "
         "Finish cleanly without trailing off or starting an incomplete sentence."
@@ -329,6 +372,117 @@ def is_single_line_code_assignment_or_call(text):
     return False
 
 
+def strip_surrounding_quotes(text):
+    """
+    Removes surrounding outer matching quotes from generated responses
+    if the entire response is enclosed in quotes, without removing internal quotes
+    or markdown backticks.
+    """
+    if not text:
+        return text
+    stripped = text.strip()
+    if len(stripped) >= 2:
+        if (stripped.startswith('"') and stripped.endswith('"') and stripped.count('"') == 2) or \
+           (stripped.startswith("'") and stripped.endswith("'") and stripped.count("'") == 2):
+            return stripped[1:-1].strip()
+        if stripped.startswith('“') and stripped.endswith('”'):
+            return stripped[1:-1].strip()
+    return stripped
+
+
+def check_code_diagnostics(text):
+    """
+    Performs deterministic static code analysis on a given text:
+    1. Checks if the snippet can be parsed as Python via ast.parse.
+    2. Identifies import statements and checks whether imported modules look like
+       misspelled typos of well-known Python packages (e.g. 'panadas' -> 'pandas',
+       'numppy' -> 'numpy').
+    3. Guarantees unfamiliar modules without close matches are NOT flagged.
+    4. Distinguishes Python code from shell commands and non-code prose/math.
+
+    Returns dict:
+      {
+          "is_python": bool,
+          "is_valid_python": bool,
+          "syntax_error": str | None,
+          "has_typo": bool,
+          "typos": list of tuple (misspelled_name, suggested_match),
+          "diagnostics_note": str | None,
+      }
+    """
+    raw = (text or "").strip()
+    result = {
+        "is_python": False,
+        "is_valid_python": False,
+        "syntax_error": None,
+        "has_typo": False,
+        "typos": [],
+        "diagnostics_note": None,
+    }
+    if not raw:
+        return result
+
+    # Check if text is a shell command (e.g., starts with CLI command name)
+    first_token = raw.split()[0].lower() if raw.split() else ""
+    if first_token in ("$", ">", "#") and len(raw.split()) > 1:
+        first_token = raw.split()[1].lower()
+    if first_token in CLI_COMMANDS:
+        return result
+
+    # Check for pure math equations that aren't programming code
+    if any(raw.startswith(m) for m in ("y = mx + b", "f(x) =", "E = mc^2", "A = pi * r^2")):
+        return result
+
+    try:
+        tree = ast.parse(raw)
+        result["is_python"] = True
+        result["is_valid_python"] = True
+
+        imported_modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_mod = alias.name.split(".")[0]
+                    imported_modules.append(root_mod)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    root_mod = node.module.split(".")[0]
+                    imported_modules.append(root_mod)
+
+        typos = []
+        for mod in imported_modules:
+            mod_lower = mod.lower()
+            if mod_lower not in POPULAR_PYTHON_MODULES:
+                matches = difflib.get_close_matches(mod_lower, POPULAR_PYTHON_MODULES, n=1, cutoff=0.75)
+                if matches and matches[0] != mod_lower:
+                    typos.append((mod, matches[0]))
+
+        if typos:
+            result["has_typo"] = True
+            result["typos"] = typos
+            typo_notes = [f"'{t[0]}' appears to be a typo for '{t[1]}'" for t in typos]
+            result["diagnostics_note"] = (
+                f"Static check detected likely import typo: {', '.join(typo_notes)}. "
+                f"Point out the typo and suggest the correction separately; do not silently normalize it."
+            )
+        elif imported_modules or any(kw in raw for kw in ("def ", "class ", "async def ", "app = ", "return ", "=")):
+            result["diagnostics_note"] = (
+                "Static analysis confirms valid Python syntax with NO typos or errors. "
+                "Do NOT invent or suggest any typos, corrections, or syntax changes. Explain only the valid behavior."
+            )
+
+    except SyntaxError as e:
+        if any(kw in raw for kw in ("def ", "class ", "import ", "from ", "return ", "async def ")):
+            result["is_python"] = True
+            result["is_valid_python"] = False
+            result["syntax_error"] = f"SyntaxError at line {e.lineno}: {e.msg}"
+            result["diagnostics_note"] = f"Static analysis detected genuine syntax error: {e.msg} at line {e.lineno}."
+    except Exception:
+        pass
+
+    return result
+
+
 def infer_intent(text):
     """
     Infers the user's intended task from the highlighted content without
@@ -349,10 +503,8 @@ def infer_intent(text):
     words = raw.split()
     word_count = len(words)
 
-    # 1. Detect -create: explicit generation/creation directives
-    for trigger in CREATE_TRIGGERS:
-        if lower.startswith(trigger) or (word_count < 30 and trigger in lower):
-            return "-create"
+    # 1. Distinguish explicit explanatory questions from generation directives:
+    is_explanatory_question = any(lower.startswith(p) for p in EXPLAIN_QUESTION_PREFIXES)
 
     # 2. Strong, explicit code signals (apply to all text lengths)
     # A. Stack traces and error messages
@@ -392,14 +544,20 @@ def infer_intent(text):
         if code_signal_lines >= 2:
             return "-code"
 
-    # 3. Detect -summarize:
+    # 3. Detect -create: explicit generation/creation directives (when not an explanatory question)
+    if not is_explanatory_question:
+        for trigger in CREATE_TRIGGERS:
+            if lower.startswith(trigger) or (word_count < 30 and (f" {trigger} " in f" {lower} " or lower.startswith(trigger))):
+                return "-create"
+
+    # 4. Detect -summarize:
     # Substantial natural language prose (>= 50 words, or multiple paragraphs / bulleted items >= 20 words)
     has_bullets = any(line.strip().startswith(("-", "*", "•")) for line in raw.splitlines())
     has_multiple_paragraphs = len([p for p in raw.split("\n\n") if p.strip()]) >= 2
     if word_count >= 50 or ((has_multiple_paragraphs or has_bullets) and word_count >= 20):
         return "-summarize"
 
-    # 4. Short code snippets and terminal commands (< 50 words)
+    # 5. Short code snippets and terminal commands (< 50 words)
     # A. Common terminal commands (checked on short command lines)
     first_token = first_line.split()[0] if first_line.split() else ""
     if first_token in ("$", ">", "#") and len(first_line.split()) > 1:
@@ -411,14 +569,21 @@ def infer_intent(text):
     if any(kw in raw for kw in CODE_KEYWORDS) or ("from " in raw and " import " in raw):
         return "-code"
 
-    # 5. Default to -explain (concepts, phrases, single words, definitions)
+    # 6. Default to -explain (concepts, phrases, single words, definitions)
     return "-explain"
 
 
 def build_intent_prompt(text, intent):
     """Formats the intent-specific instruction prefix and user text."""
     prefix = INTENT_INSTRUCTIONS.get(intent, INTENT_INSTRUCTIONS["-explain"])
-    return f"{prefix}\n\n\"{text.strip()}\""
+
+    extra_guidance = ""
+    if intent == "-code":
+        diag = check_code_diagnostics(text)
+        if diag.get("diagnostics_note"):
+            extra_guidance = f"\n{diag['diagnostics_note']}"
+
+    return f"{prefix}{extra_guidance}\n\n\"{text.strip()}\""
 
 
 class ExplanationResponse(tuple):
@@ -547,7 +712,8 @@ def request_ai_explanation(text, intent=None):
                 raw_body = response.read().decode("utf-8")
                 parsed_json = json.loads(raw_body)
                 raw_explanation = parsed_json.get("response", "").strip()
-                explanation = clean_truncated_sentence(raw_explanation)
+                cleaned_quotes = strip_surrounding_quotes(raw_explanation)
+                explanation = clean_truncated_sentence(cleaned_quotes)
                 metrics = sanitize_ollama_metrics(parsed_json)
 
                 if explanation:
@@ -609,22 +775,95 @@ def get_system_theme():
             "text": "#f4f4f5",             # Clean light text
             "title": "#38bdf8",            # Identity accent
             "tag": "#94a3b8",              # Muted command/intent tag
-            "close_btn": "#71717a",        # Muted close icon
-            "close_hover": "#f87171",      # Red hover
+            "code_bg": "#27272a",          # Zinc-800 for code blocks
+            "code_inline_bg": "#27272a",   # Zinc-800 for inline code
+            "close_btn": "#71717a",        # Muted controls
+            "close_hover": "#38bdf8",      # Accent hover
             "trans_color": "#000001",      # Transparent color key
         }
     else:
         return {
             "mode": "light",
             "bubble_fill": "#ffffff",      # Clean white background
-            "outline": "#cbd5e1",          # Restrained soft outline
-            "text": "#18181b",             # Dark legible text
-            "title": "#0284c7",            # Crisp dark accent
-            "tag": "#64748b",              # Muted tag color
-            "close_btn": "#71717a",        # Muted close icon
-            "close_hover": "#ef4444",      # Red hover
+            "outline": "#e2e8f0",          # Subtle border (slate-200)
+            "text": "#0f172a",             # Dark, high-contrast body text (slate-900)
+            "title": "#0284c7",            # Restrained blue accent (sky-600)
+            "tag": "#64748b",              # Muted slate-500
+            "code_bg": "#f8fafc",          # Very soft slate-50 background for code blocks
+            "code_inline_bg": "#f1f5f9",   # Soft slate-100 background for inline code
+            "close_btn": "#64748b",        # Slate-500
+            "close_hover": "#0284c7",      # Blue accent on hover
             "trans_color": "#000001",      # Transparent color key
         }
+
+
+def render_formatted_response(text_widget, text, theme=None):
+    """
+    Renders AI response into Tkinter Text widget with structured tags:
+    - Fenced code blocks (``` ... ```) in Consolas with subtle background
+    - Bulleted and numbered lists with left indentation
+    - Inline backtick code snippets
+    - Paragraph breaks with natural spacing
+    - Strips unnecessary outer quotation marks
+    """
+    text_widget.config(state=tk.NORMAL)
+    text_widget.delete("1.0", tk.END)
+
+    cleaned = strip_surrounding_quotes(text or "")
+    if not cleaned:
+        text_widget.config(state=tk.DISABLED)
+        return
+
+    lines = cleaned.splitlines()
+    in_code_block = False
+    code_block_lines = []
+
+    for idx, line in enumerate(lines):
+        stripped_line = line.strip()
+        if stripped_line.startswith("```"):
+            if in_code_block:
+                block_text = "\n".join(code_block_lines) + "\n"
+                text_widget.insert(tk.END, block_text, ("code_block",))
+                code_block_lines = []
+                in_code_block = False
+            else:
+                in_code_block = True
+                code_block_lines = []
+            continue
+
+        if in_code_block:
+            code_block_lines.append(line)
+            continue
+
+        # Check for bullet / list item
+        is_bullet = False
+        for bullet_prefix in ("- ", "* ", "• "):
+            if stripped_line.startswith(bullet_prefix):
+                is_bullet = True
+                break
+        if not is_bullet and re.match(r"^\d+\.\s+", stripped_line):
+            is_bullet = True
+
+        line_tag = "bullet" if is_bullet else "body"
+
+        if "`" in line:
+            parts = line.split("`")
+            for i, part in enumerate(parts):
+                if i % 2 == 1:
+                    text_widget.insert(tk.END, part, ("code_inline",))
+                else:
+                    text_widget.insert(tk.END, part, (line_tag,))
+        else:
+            text_widget.insert(tk.END, line, (line_tag,))
+
+        if idx < len(lines) - 1:
+            text_widget.insert(tk.END, "\n")
+
+    if in_code_block and code_block_lines:
+        block_text = "\n".join(code_block_lines) + "\n"
+        text_widget.insert(tk.END, block_text, ("code_block",))
+
+    text_widget.config(state=tk.DISABLED)
 
 
 def compute_rounded_panel_polygon(w, h, r=10):
@@ -838,6 +1077,30 @@ class FloatingBubbleWindow:
         self.controls_frame = tk.Frame(self.header_frame, bg=self.theme["bubble_fill"])
         self.controls_frame.pack(side=tk.RIGHT)
 
+        # Small Understated Copy button
+        self.copy_btn = tk.Label(
+            self.controls_frame,
+            text="Copy",
+            font=("Segoe UI", 8),
+            fg=self.theme["close_btn"],
+            bg=self.theme["bubble_fill"],
+            cursor="hand2",
+        )
+        self.copy_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self.copy_btn.bind("<Button-1>", lambda e: self.on_copy())
+        self.copy_btn.bind("<Enter>", lambda e: self.copy_btn.config(fg=self.theme["close_hover"]))
+        self.copy_btn.bind("<Leave>", lambda e: self.copy_btn.config(fg=self.theme["close_btn"]))
+
+        # Subtle separator
+        self.sep_label1 = tk.Label(
+            self.controls_frame,
+            text="|",
+            font=("Segoe UI", 8),
+            fg=self.theme["close_btn"],
+            bg=self.theme["bubble_fill"],
+        )
+        self.sep_label1.pack(side=tk.LEFT, padx=(0, 5))
+
         # Discoverable, deliberate Exit button
         self.exit_btn = tk.Label(
             self.controls_frame,
@@ -847,20 +1110,21 @@ class FloatingBubbleWindow:
             bg=self.theme["bubble_fill"],
             cursor="hand2",
         )
-        self.exit_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.exit_btn.pack(side=tk.LEFT, padx=(0, 5))
         self.exit_btn.bind("<Button-1>", lambda e: self.on_exit())
         self.exit_btn.bind("<Enter>", lambda e: self.exit_btn.config(fg=self.theme["close_hover"]))
         self.exit_btn.bind("<Leave>", lambda e: self.exit_btn.config(fg=self.theme["close_btn"]))
 
         # Subtle separator
-        self.sep_label = tk.Label(
+        self.sep_label2 = tk.Label(
             self.controls_frame,
             text="|",
             font=("Segoe UI", 8),
             fg=self.theme["close_btn"],
             bg=self.theme["bubble_fill"],
         )
-        self.sep_label.pack(side=tk.LEFT, padx=(0, 6))
+        self.sep_label = self.sep_label2  # backward compatibility alias
+        self.sep_label2.pack(side=tk.LEFT, padx=(0, 5))
 
         # Minimal close icon ('✕') to dismiss
         self.close_x_btn = tk.Label(
@@ -904,6 +1168,11 @@ class FloatingBubbleWindow:
             spacing1=1,
             spacing3=1,
         )
+        self.text_area.tag_configure("body", font=("Segoe UI", 10), foreground=self.theme["text"], spacing1=2, spacing3=3)
+        self.text_area.tag_configure("bold", font=("Segoe UI", 10, "bold"), foreground=self.theme["text"])
+        self.text_area.tag_configure("bullet", font=("Segoe UI", 10), foreground=self.theme["text"], lmargin1=16, lmargin2=28, spacing1=2, spacing3=2)
+        self.text_area.tag_configure("code_inline", font=("Consolas", 9), foreground=self.theme["text"], background=self.theme.get("code_inline_bg", "#f1f5f9"))
+        self.text_area.tag_configure("code_block", font=("Consolas", 9), foreground=self.theme["text"], background=self.theme.get("code_bg", "#f8fafc"), lmargin1=14, lmargin2=14, spacing1=4, spacing3=4)
         self.text_area.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         self.text_area.insert(
             tk.END,
@@ -1002,15 +1271,38 @@ class FloatingBubbleWindow:
         self.root.attributes("-topmost", True)
         self.root.lift()
 
+    def on_copy(self):
+        """Copies current answer to clipboard with subtle transient confirmation."""
+        raw_text = getattr(self, "_current_raw_answer", None)
+        if not raw_text:
+            raw_text = self.text_area.get("1.0", tk.END).strip()
+
+        if raw_text:
+            try:
+                pyperclip.copy(raw_text)
+                self.copy_btn.config(text="Copied!", fg=self.theme["title"])
+                self.root.after(1400, lambda: self.copy_btn.config(text="Copy", fg=self.theme["close_btn"]))
+            except Exception as e:
+                print(f"[Warning] Failed to copy to clipboard: {e}", flush=True)
+
+    def _resize_panel(self, target_height):
+        """Resizes the canvas and polygon to match the target dynamic height."""
+        self.height = target_height
+        panel_pts = compute_rounded_panel_polygon(self.width, self.height, r=10)
+        self.canvas.coords(self.bubble_polygon, *panel_pts)
+        self.canvas.itemconfig(self.content_window, height=self.height - 20)
+        self.canvas.config(height=self.height)
+
     def show_generating(self, selected_text, intent="-explain"):
         """Displays generating state while Ollama processes the text."""
+        self._resize_panel(190)
         self.position_bubble()
         label = INTENT_DISPLAY_LABELS.get(intent, "Explain")
         self.header_status.config(text=f"Kya-Ray · {label}")
 
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
-        self.text_area.insert(tk.END, f"Thinking with local AI ({OLLAMA_MODEL})...")
+        self.text_area.insert(tk.END, f"Thinking with local AI ({OLLAMA_MODEL})...", ("body",))
         self.text_area.config(state=tk.DISABLED)
 
         self._bring_to_front()
@@ -1019,11 +1311,18 @@ class FloatingBubbleWindow:
         """Displays the AI-generated response directly in the minimal floating panel."""
         label = INTENT_DISPLAY_LABELS.get(intent, "Explain")
         self.header_status.config(text=f"Kya-Ray · {label}")
+        self._current_raw_answer = explanation.strip()
 
-        self.text_area.config(state=tk.NORMAL)
-        self.text_area.delete("1.0", tk.END)
-        self.text_area.insert(tk.END, explanation.strip())
-        self.text_area.config(state=tk.DISABLED)
+        # Dynamic height adaptation based on response length (min 170px, max 340px)
+        lines = self._current_raw_answer.splitlines()
+        line_count = 0
+        for l in lines:
+            line_count += max(1, len(l) // 44 + 1)
+        target_height = max(170, min(340, 70 + line_count * 20))
+        self._resize_panel(target_height)
+        self.position_bubble()
+
+        render_formatted_response(self.text_area, self._current_raw_answer, theme=self.theme)
 
         self._bring_to_front()
         self.root.update_idletasks()
@@ -1033,17 +1332,20 @@ class FloatingBubbleWindow:
 
     def show_error(self, selected_text, error_message):
         """Displays error details if Ollama inference fails."""
+        self._resize_panel(190)
+        self.position_bubble()
         self.header_status.config(text="Kya-Ray · Error")
 
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
-        self.text_area.insert(tk.END, f"Could not generate an answer:\n\n{error_message}")
+        self.text_area.insert(tk.END, f"Could not generate an answer:\n\n{error_message}", ("body",))
         self.text_area.config(state=tk.DISABLED)
 
         self._bring_to_front()
 
     def show_no_selection(self):
         """Displays notice when user triggered the shortcut with nothing selected."""
+        self._resize_panel(190)
         self.position_bubble()
         self.header_status.config(text="Kya-Ray · Notice")
 
@@ -1052,7 +1354,8 @@ class FloatingBubbleWindow:
         self.text_area.insert(
             tk.END,
             "No text was selected.\n\n"
-            "Please highlight some text in any window and press Ctrl + Alt + Space."
+            "Please highlight some text in any window and press Ctrl + Alt + Space.",
+            ("body",)
         )
         self.text_area.config(state=tk.DISABLED)
 
@@ -1060,6 +1363,7 @@ class FloatingBubbleWindow:
 
     def show_startup_notice(self, status, message):
         """Displays startup prerequisite notice if Ollama or model is unavailable."""
+        self._resize_panel(190)
         self.position_bubble()
         self.header_status.config(text="Kya-Ray · Prerequisite Notice")
 
@@ -1068,7 +1372,8 @@ class FloatingBubbleWindow:
         self.text_area.insert(
             tk.END,
             f"{message}\n\n"
-            "Kya-Ray is active in the background. Press Ctrl + Alt + Space once ready."
+            "Kya-Ray is active in the background. Press Ctrl + Alt + Space once ready.",
+            ("body",)
         )
         self.text_area.config(state=tk.DISABLED)
 
