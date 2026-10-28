@@ -23,6 +23,7 @@ from prototype.main import (
     get_system_theme,
     FloatingBubbleWindow,
     ResponseWindow,
+    render_formatted_response,
 )
 
 
@@ -86,6 +87,15 @@ class TestBubblePolygon(unittest.TestCase):
 
 class TestSystemTheme(unittest.TestCase):
     """Verifies OS theme detection returns valid colors."""
+
+    def test_consistent_light_theme_palette(self):
+        """Verifies Kya-Ray enforces a consistent minimal light theme regardless of OS dark mode."""
+        theme = get_system_theme()
+        self.assertEqual(theme["mode"], "light")
+        self.assertEqual(theme["bubble_fill"].lower(), "#ffffff")
+        self.assertEqual(theme["outline"].lower(), "#e2e8f0")
+        self.assertEqual(theme["text"].lower(), "#0f172a")
+        self.assertEqual(theme["title"].lower(), "#0284c7")
 
     def test_theme_dict_structure(self):
         theme = get_system_theme()
@@ -219,6 +229,22 @@ class TestFloatingBubbleWindow(unittest.TestCase):
         self.assertIn("Here is an explanation paragraph.", content)
         self.assertIn("Point one", content)
         self.assertIn("app = FastAPI()", content)
+
+    def test_render_formatted_response_multiline_email(self):
+        """Verifies multi-paragraph text (e.g. emails) retains all paragraphs without truncation."""
+        text_widget = tk.Text(self.root)
+        email_text = (
+            "Subject: Extension Request for Assignment\n\n"
+            "Dear Professor Davis,\n\n"
+            "I am writing to respectfully request an extension on the project.\n\n"
+            "Thank you for your understanding.\n\n"
+            "Sincerely,\nAlex"
+        )
+        render_formatted_response(text_widget, email_text, theme=self.app.theme)
+        content = text_widget.get("1.0", tk.END)
+        self.assertIn("Subject: Extension Request for Assignment", content)
+        self.assertIn("Dear Professor Davis,", content)
+        self.assertIn("Sincerely,\nAlex", content)
 
     def test_dynamic_window_sizing(self):
         """Verifies window adjusts height dynamically between compact and max limits."""
