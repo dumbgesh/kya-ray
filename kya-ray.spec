@@ -18,6 +18,9 @@ hiddenimports = [
     'ctypes',
     'ctypes.wintypes',
     'winreg',
+    'ast',
+    'difflib',
+    're',
 ]
 
 datas = [
