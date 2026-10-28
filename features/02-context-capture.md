@@ -12,11 +12,11 @@ The Context Capture system extracts the user's highlighted screen content from e
 
 ## User Experience
 1. The user highlights a passage, error message, or code block in any software application.
-2. The user triggers the hotkey (`Ctrl + Shift + J`).
+2. The user triggers the hotkey (`Ctrl + Alt + Space`).
 3. Kya-Ray programmatically captures the selection in the background.
 4. **When text is selected**: The floating bubble opens immediately in "Thinking..." mode displaying a truncated preview of the captured text.
 5. **When nothing is selected**: The floating bubble appears displaying a clear notice:
-   > *"No text was selected. Please highlight some text in any window and press Ctrl + Shift + J again."*
+   > *"No text was selected. Please highlight some text in any window and press Ctrl + Alt + Space again."*
 6. The user's pre-existing clipboard contents are preserved and restored.
 
 ---
