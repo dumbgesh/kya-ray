@@ -28,7 +28,7 @@ if exist "%~dp0Kya-Ray\Kya-Ray.exe" (
 )
 
 echo Kya-Ray has launched in the background!
-echo Highlight text in any application and press Ctrl + Shift + J.
+echo Highlight text in any application and press Ctrl + Alt + Space.
 echo.
 timeout /t 3 >nul
 exit /b 0
