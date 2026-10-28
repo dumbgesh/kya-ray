@@ -110,6 +110,38 @@ class TestIntentInference(unittest.TestCase):
             with self.subTest(prompt=prompt):
                 self.assertEqual(infer_intent(prompt), "-create")
 
+    def test_infer_create_pickup_line_and_generation_directives(self):
+        """Verifies explicit generation directives including 'give me a cute pickup line' map to -create."""
+        cases = [
+            "give me a cute pickup line",
+            "Give me a cute pickup line",
+            "give me an idea for a birthday gift",
+            "give me three reasons to learn Rust",
+            "come up with a catchy title for my blog post",
+            "rewrite this email to sound more professional",
+            "suggest a name for my open-source project",
+            "make a list of 5 healthy snacks for office workers",
+            "draft an announcement for our upcoming webinar",
+        ]
+        for prompt in cases:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(infer_intent(prompt), "-create")
+
+    def test_infer_explain_distinction_from_create(self):
+        """Verifies explanatory questions are not hijacked by embedded create words."""
+        cases = [
+            "Explain what a pickup line is",
+            "What is a pickup line?",
+            "How do you write a pickup line?",
+            "Explain how to draft a business proposal",
+            "What are the key elements of a good title?",
+            "Why do writers rewrite their drafts?",
+            "Define the concept of creative generation",
+        ]
+        for prompt in cases:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(infer_intent(prompt), "-explain")
+
     def test_infer_summarize_long_prose(self):
         long_prose = (
             "The architecture of modern distributed systems relies heavily on asynchronous event "
@@ -479,6 +511,91 @@ class TestAnswerReliabilityRegression(unittest.TestCase):
             self.assertEqual(content, "Complete factual sentence.")
             self.assertIsNotNone(metrics)
             self.assertEqual(metrics["eval_count"], 15)
+
+
+class TestCodeDiagnosticsAndReliability(unittest.TestCase):
+    """
+    Verifies deterministic static code diagnostics:
+    - AST-based parsing and syntax validation
+    - Curated module set with difflib typo suggestions (e.g. panadas -> pandas, numppy -> numpy)
+    - Unfamiliar modules without close matches are not falsely flagged
+    - Shell commands and math expressions are identified appropriately
+    - Static validation is kept separate from LLM generation
+    """
+
+    def test_static_code_diagnostics_typo_detection(self):
+        try:
+            from prototype.main import check_code_diagnostics
+        except ImportError:
+            self.fail("check_code_diagnostics must be defined in prototype.main")
+
+        # Misspelled pandas
+        diag_pandas = check_code_diagnostics("import panadas as pd")
+        self.assertTrue(diag_pandas["has_typo"])
+        self.assertIn("panadas", [t[0] for t in diag_pandas["typos"]])
+        self.assertEqual(diag_pandas["typos"][0][1], "pandas")
+
+        # Misspelled numpy
+        diag_numpy = check_code_diagnostics("import numppy as np")
+        self.assertTrue(diag_numpy["has_typo"])
+        self.assertIn("numppy", [t[0] for t in diag_numpy["typos"]])
+        self.assertEqual(diag_numpy["typos"][0][1], "numpy")
+
+    def test_static_code_diagnostics_valid_code_not_flagged(self):
+        try:
+            from prototype.main import check_code_diagnostics
+        except ImportError:
+            self.fail("check_code_diagnostics must be defined in prototype.main")
+
+        valid_cases = [
+            "import pandas as pd",
+            "import numpy as np",
+            "from pathlib import Path",
+            "app = FastAPI()",
+            "client = MongoClient('localhost')",
+            "def calculate_sum(a, b): return a + b",
+        ]
+        for code in valid_cases:
+            with self.subTest(code=code):
+                diag = check_code_diagnostics(code)
+                self.assertFalse(diag["has_typo"])
+                self.assertTrue(diag["is_valid_python"])
+
+    def test_static_code_diagnostics_unfamiliar_import_not_falsely_flagged(self):
+        try:
+            from prototype.main import check_code_diagnostics
+        except ImportError:
+            self.fail("check_code_diagnostics must be defined in prototype.main")
+
+        diag = check_code_diagnostics("import my_internal_corp_security_v2")
+        self.assertFalse(diag["has_typo"])
+        self.assertEqual(len(diag["typos"]), 0)
+
+    def test_static_code_diagnostics_shell_and_math(self):
+        try:
+            from prototype.main import check_code_diagnostics
+        except ImportError:
+            self.fail("check_code_diagnostics must be defined in prototype.main")
+
+        diag_shell = check_code_diagnostics("git status --short")
+        self.assertFalse(diag_shell["has_typo"])
+
+        diag_math = check_code_diagnostics("y = mx + b")
+        self.assertFalse(diag_math["has_typo"])
+
+    def test_strip_surrounding_quotes(self):
+        try:
+            from prototype.main import strip_surrounding_quotes
+        except ImportError:
+            self.fail("strip_surrounding_quotes must be defined in prototype.main")
+
+        self.assertEqual(
+            strip_surrounding_quotes('"Are you a magician? Because whenever I look at you, everyone else disappears."'),
+            "Are you a magician? Because whenever I look at you, everyone else disappears."
+        )
+        self.assertEqual(strip_surrounding_quotes("'Single quoted text.'"), "Single quoted text.")
+        self.assertEqual(strip_surrounding_quotes('`code expression`'), '`code expression`')
+        self.assertEqual(strip_surrounding_quotes('He said, "Hello!"'), 'He said, "Hello!"')
 
 
 if __name__ == "__main__":
