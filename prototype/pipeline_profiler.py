@@ -366,7 +366,7 @@ def main():
     print(f"  Target Runs:      {target_runs}")
     print(f"  Telemetry Scope:  Run IDs, Event Names, Monotonic Timestamps (No Text)")
     print("=" * 72)
-    print("\n[Status] Waiting for Kya-Ray hotkey activations (Ctrl + Shift + J)...")
+    print("\n[Status] Waiting for Kya-Ray hotkey activations (Ctrl + Alt + Space)...")
     print("         (Press Ctrl + C here at any time to finish and view summary)\n")
 
     # Bind UDP diagnostic receiver
@@ -448,7 +448,7 @@ def main():
                     successful_runs.append({"run_id": run_id, "analysis": analysis})
                     remaining = target_runs - len(successful_runs)
                     if remaining > 0:
-                        print(f"[Status] {remaining} run(s) remaining. Highlight text and press Ctrl + Shift + J.")
+                        print(f"[Status] {remaining} run(s) remaining. Highlight text and press Ctrl + Alt + Space.")
 
     except KeyboardInterrupt:
         print("\n\n[Notice] Profiler interrupted by user. Generating summary of completed runs...")
