@@ -20,6 +20,8 @@ from prototype.main import (
     ExplanationResponse,
     build_intent_prompt,
     clean_truncated_sentence,
+    check_code_diagnostics,
+    extract_single_creation_output,
     infer_intent,
     request_ai_explanation,
 )
@@ -229,6 +231,24 @@ class TestIntentInference(unittest.TestCase):
 
         for text, expected in cases:
             with self.subTest(input_text=text[:40]):
+                self.assertEqual(infer_intent(text), expected)
+
+
+    def test_infer_intent_ambiguous_and_code_edge_cases(self):
+        """Verifies intent inference for ambiguous commands, functions, and math expressions."""
+        cases = [
+            ("Summarize this code", "-summarize"),
+            ("Summarize the following findings", "-summarize"),
+            ("Write a function to compute fibonacci", "-create"),
+            ("Explain how to write a function", "-explain"),
+            ("Explain why this function fails", "-explain"),
+            ("y = mx + b", "-explain"),
+            ("f(x) = x^2 + 2x + 1", "-explain"),
+            ("app = FastAPI()", "-code"),
+            ("git status --short", "-code"),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
                 self.assertEqual(infer_intent(text), expected)
 
 
@@ -724,6 +744,56 @@ class TestCreateIntentRefinement(unittest.TestCase):
             extract_single_creation_output(paras),
             "Are you a magician? Because whenever I look at you, everyone else disappears."
         )
+
+    def test_extract_single_creation_output_multi_paragraph_email(self):
+        """Verifies multi-paragraph creation output (like an email) is not truncated."""
+        email = (
+            "Subject: Project Status Update\n\n"
+            "Dear Team,\n\n"
+            "Here is the weekly status update on our progress.\n\n"
+            "We completed the beta packaging and regression testing.\n\n"
+            "Best regards,\nEngineering Team"
+        )
+        self.assertEqual(extract_single_creation_output(email), email)
+
+    def test_extract_single_creation_output_trims_trailing_alternative_from_email(self):
+        """Verifies trailing unsolicited alternatives are trimmed without truncating the email."""
+        email_with_alt = (
+            "Subject: Quick question\n\n"
+            "Hi Sarah,\n\n"
+            "Could we reschedule our meeting to 3 PM?\n\n"
+            "Another option: Would tomorrow morning work better?"
+        )
+        expected = (
+            "Subject: Quick question\n\n"
+            "Hi Sarah,\n\n"
+            "Could we reschedule our meeting to 3 PM?"
+        )
+        self.assertEqual(extract_single_creation_output(email_with_alt), expected)
+
+    def test_code_diagnostics_unfamiliar_internal_module(self):
+        """Verifies unfamiliar internal modules are not falsely flagged as typos."""
+        diag = check_code_diagnostics("import my_internal_corp_service_v2")
+        self.assertFalse(diag["has_typo"])
+        self.assertEqual(len(diag["typos"]), 0)
+        self.assertIn("valid Python syntax with NO typos or errors", diag["diagnostics_note"])
+        self.assertNotIn("misspelled", diag["diagnostics_note"])
+
+        diag_from = check_code_diagnostics("from company_internal.auth.tokens import get_token")
+        self.assertFalse(diag_from["has_typo"])
+        self.assertIn("valid Python syntax with NO typos or errors", diag_from["diagnostics_note"])
+        self.assertNotIn("misspelled", diag_from["diagnostics_note"])
+
+        # Also confirm genuine typos are properly flagged
+        diag_panadas = check_code_diagnostics("import panadas as pd")
+        self.assertTrue(diag_panadas["has_typo"])
+        self.assertEqual(diag_panadas["typos"][0], ("panadas", "pandas"))
+        self.assertIn("pandas", diag_panadas["diagnostics_note"])
+
+        diag_numppy = check_code_diagnostics("import numppy as np")
+        self.assertTrue(diag_numppy["has_typo"])
+        self.assertEqual(diag_numppy["typos"][0], ("numppy", "numpy"))
+        self.assertIn("numpy", diag_numppy["diagnostics_note"])
 
     def test_create_prompt_instructions_singular_vs_multiple(self):
         """Verifies prompt construction specifically steers model to 1 output for singular and N for multiple."""
