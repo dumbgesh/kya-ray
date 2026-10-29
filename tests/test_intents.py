@@ -7,12 +7,13 @@ Tests verify:
 4. Model request integration and fallback handling.
 """
 
+import os
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
 # Ensure workspace root is in python path
-sys.path.insert(0, "c:/kya-ray")
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from prototype.main import (
     CORE_INTENTS,
