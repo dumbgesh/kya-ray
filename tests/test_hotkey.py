@@ -7,13 +7,14 @@ Tests verify:
 4. Latching and debouncing in on_press / on_release.
 """
 
+import os
 import sys
 import unittest
 from unittest.mock import patch
 from pynput import keyboard
 
 # Ensure workspace root is in path
-sys.path.insert(0, "c:/kya-ray")
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from prototype.main import (
     CTRL_KEYS,
