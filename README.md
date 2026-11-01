@@ -2,9 +2,9 @@
 
 *A little context-aware AI desktop companion.*
 
-Kya-Ray helps you understand and work with whatever you are looking at, right where you are.
+Understand and work with what you're looking at, without switching between apps.
 
-Select something. Press **`Ctrl + Alt + Space`**. Keep going.
+**Select. Press `Ctrl + Alt + Space`. Keep going.**
 
 ![Kya-Ray — product vision](assets/kya-ray-vision.png)
 
@@ -12,110 +12,123 @@ Select something. Press **`Ctrl + Alt + Space`**. Keep going.
 
 ## What is Kya-Ray?
 
-When reading documentation, reviewing code, or writing messages, you often encounter unfamiliar terms, complex code snippets, or lengthy text. Normally, you have to copy the text, open a browser, paste it into an AI chat, and switch back.
+Ever come across something confusing while reading documentation, browsing, coding, or writing?
 
-Kya-Ray streamlines this into a single keystroke:
+Instead of copying it into an AI chat, Kya-Ray lets you get help right where you are.
 
-1. **Highlight text** in any application (browser, IDE, PDF, terminal, or document).
-2. **Press `Ctrl + Alt + Space`**.
-3. A compact floating card appears near your cursor with a clear, concise AI answer.
+1. Select any text.
+2. Press `Ctrl + Alt + Space`.
+3. Get an AI response in a small floating panel.
 
-- **100% Local & Private**: Runs entirely offline via [Ollama](https://ollama.com) (`llama3.2:1b`). Zero cloud transmission.
-- **Zero Interruption**: Automatically captures selected text and restores your previous clipboard contents immediately.
-- **Automatic Intent Inference**: Understands whether to explain, summarize, analyze code, or draft content without manual mode-switching.
+Kya-Ray runs locally through [Ollama](https://ollama.com), using `llama3.2:1b`. Your selected text stays on your machine.
 
 ---
 
-## Four Intelligent Intents
+## Four ways to work
 
-Kya-Ray automatically determines what kind of help you need based on the highlighted context:
+Kya-Ray automatically figures out what kind of help you need.
 
-- **Explain** — Plain-language definitions for unfamiliar words, technical terms, and concepts with strict anti-hallucination guardrails.
-- **Summarize** — Condenses long prose ($\ge 50$ words), articles, and meeting notes into 1–2 short sentences.
-- **Code** — Explains code snippets and terminal commands. Deterministic static diagnostics (`ast` + `difflib`) detect package typos (e.g. `panadas` $\to$ `pandas`) without inventing errors on valid code.
-- **Create** — Fulfills drafting requests directly (emails, replies, ideas) with single-output defaults and no conversational preamble (*"I'd be happy to..."*).
+- **Explain** — Understand unfamiliar words, concepts, and technical terms.
+- **Summarize** — Turn lengthy text into short, useful takeaways.
+- **Code** — Understand code and commands, with basic typo and syntax diagnostics.
+- **Create** — Draft emails, replies, ideas, and other content.
+
+No need to select a mode. Just select text and ask.
 
 ---
 
-## Quickstart
+## Getting Started
 
-### 1. Prerequisites
-1. Install **Ollama for Windows** from [ollama.com](https://ollama.com/download/windows).
-2. Download the recommended model (~1.3 GB) in PowerShell or Command Prompt:
-   ```shell
-   ollama pull llama3.2:1b
-   ```
+### 1. Install Ollama
 
-### 2. Download & Run
-1. Download the latest **[v0.1.0-beta Windows release](https://github.com/dumbgesh/kya-ray/releases)** (`Kya-Ray-v0.1.0-beta-win64.zip`).
-2. Extract the ZIP anywhere and double-click **`START_KYA_RAY.bat`** (or `Kya-Ray\Kya-Ray.exe`).
-3. Highlight text in any application and press **`Ctrl + Alt + Space`**.
+Download [Ollama for Windows](https://ollama.com/download/windows).
+
+Then open PowerShell and run:
+
+```powershell
+ollama pull llama3.2:1b
+```
+
+### 2. Download Kya-Ray
+
+Download the [latest Windows release](https://github.com/dumbgesh/kya-ray/releases).
+
+Extract the ZIP and run `START_KYA_RAY.bat` (or `Kya-Ray\Kya-Ray.exe`).
+
+That's it. Select some text and press `Ctrl + Alt + Space`.
 
 ### Controls
 
-| Action | Control |
-| :--- | :--- |
-| **Trigger Assistant** | Highlight text + `Ctrl + Alt + Space` |
-| **Dismiss Panel** | `Esc` or click `✕` in top-right |
-| **Copy Response** | Click `Copy` button |
-| **Reposition** | Click and drag anywhere on the panel |
-| **Exit Application** | Click `Exit` in top-right, or right-click $\to$ *Exit Kya-Ray* |
+| Action | Shortcut |
+|---|---|
+| Open Kya-Ray | Select text + `Ctrl + Alt + Space` |
+| Dismiss panel | `Esc` or `✕` |
+| Copy response | `Copy` button |
+| Move panel | Click and drag |
+| Exit | `Exit` button or right-click menu |
 
 ---
 
 ## Running from Source
 
 ```powershell
-# Clone the repository
 git clone https://github.com/dumbgesh/kya-ray.git
 cd kya-ray
 
-# Create and activate virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Run application
 python prototype/main.py
 
-# Run test suite (75 tests)
+# Run tests
 python -m unittest discover tests -v
 ```
 
 ---
 
-## Tech Stack
+## Built With
 
-- **Runtime & GUI**: Python 3.10+ & Tkinter (minimal light card theme, dynamic height scaling, transparent keying)
-- **Global Hotkeys & Capture**: `pynput` (global Windows keyboard listener) & `pyperclip` (clipboard bridge & restore)
-- **Local AI Engine**: [Ollama](https://ollama.com) REST API (`localhost:11434`) running Meta's `llama3.2:1b`
-- **Packaging**: PyInstaller Windows x64 onedir standalone package
-
----
-
-## Current Status & Roadmap
-
-The current public release is **`v0.1.0-beta`** (Windows x64 portable package). We are actively developing toward **`v1.0.0`**:
-
-- [x] Global `Ctrl + Alt + Space` shortcut detection with debouncing
-- [x] Four deterministic intents with static code diagnostics and preamble cleanup
-- [x] Minimal light UI panel with dynamic sizing and one-click copy button
-- [x] Comprehensive automated test suite (75 verified tests)
-- [ ] Response token streaming (`stream: true`) for $< 400$ ms perceived latency
-- [ ] Codebase modularization into structured Python package modules
-- [ ] Multi-monitor cursor positioning and native Windows system tray integration
+- **Python & Tkinter** — Application and interface.
+- **pynput** — Global keyboard shortcuts.
+- **pyperclip** — Selected-text capture and clipboard handling.
+- **Ollama & Llama 3.2 1B** — Local AI inference.
+- **PyInstaller** — Windows application packaging.
 
 ---
 
-## Documentation
+## Where We Are
 
-- [Windows Beta Quickstart Guide](README_BETA.md) — Detailed setup instructions, launcher details, and troubleshooting.
-- [Feature Specifications System](features/README.md) — Full specifications for core interactions, intent taxonomy, UI, and privacy.
+The latest public release is **`v0.1.0-beta`** for Windows x64.
+
+We're working towards **`v1.0.0`**.
+
+### What's working
+
+- [x] Global keyboard shortcut.
+- [x] Four automatic intents.
+- [x] Floating response panel.
+- [x] Clipboard restoration.
+- [x] Code diagnostics.
+- [x] Automated test suite (75 verified tests).
+
+### What's next
+
+- [ ] Faster, streamed responses.
+- [ ] A more modular codebase.
+- [ ] Better multi-monitor support.
+- [ ] Windows system tray integration.
+
+---
+
+## More Documentation
+
+- [Windows Quickstart & Troubleshooting](README_BETA.md)
+- [Feature Specifications](features/README.md)
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Kya-Ray is open-source software licensed under the [MIT License](LICENSE).
