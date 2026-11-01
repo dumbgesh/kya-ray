@@ -118,4 +118,4 @@ The current public release is **`v0.1.0-beta`** (Windows x64 portable package). 
 
 ## License
 
-Open-source under the MIT License.
+This project is licensed under the [MIT License](LICENSE).
