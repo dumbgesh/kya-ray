@@ -1,6 +1,18 @@
 # Core runtime dependencies
 pynput==1.8.2
 pyperclip==1.11.0
+PySide6==6.12.0
+
+# Testing
+pytest==9.2.0
+
+# Backend API & Cloud AI
+fastapi==0.162.0
+uvicorn==0.54.0
+groq==1.7.0
+httpx==0.28.1
+pydantic==2.14.2
+python-dotenv==1.2.4
 
 # Windows packaging
 pyinstaller==6.22.3
