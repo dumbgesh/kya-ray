@@ -1,8 +1,8 @@
 # Kya-Ray
 
-*A little context-aware AI desktop companion.*
+*A context-aware AI desktop companion for Windows.*
 
-Kya-Ray helps you understand and work with whatever you are looking at, right where you are.
+Kya-Ray helps you understand and work with whatever you are looking at—code, prose, documentation, notes, or data—right where you are.
 
 Select something. Press **`Ctrl + Alt + Space`**. Keep going.
 
@@ -12,59 +12,91 @@ Select something. Press **`Ctrl + Alt + Space`**. Keep going.
 
 ## What is Kya-Ray?
 
-When reading documentation, reviewing code, or writing messages, you often encounter unfamiliar terms, complex code snippets, or lengthy text. Normally, you have to copy the text, open a browser, paste it into an AI chat, and switch back.
+When reading documentation, reviewing code, or troubleshooting errors, you often encounter unfamiliar terms, complex code snippets, or lengthy text. Normally, you have to copy the text, open a browser, paste it into an AI chat, write a prompt, and switch back.
 
 Kya-Ray streamlines this into a single keystroke:
 
 1. **Highlight text** in any application (browser, IDE, PDF, terminal, or document).
 2. **Press `Ctrl + Alt + Space`**.
-3. A compact floating card appears near your cursor with a clear, concise AI answer.
-
-- **100% Local & Private**: Runs entirely offline via [Ollama](https://ollama.com) (`llama3.2:1b`). Zero cloud transmission.
-- **Zero Interruption**: Automatically captures selected text and restores your previous clipboard contents immediately.
-- **Automatic Intent Inference**: Understands whether to explain, summarize, analyze code, or draft content without manual mode-switching.
+3. A compact floating card appears near your cursor with a clear, concise AI answer streamed in real time.
 
 ---
 
 ## Four Intelligent Intents
 
-Kya-Ray automatically determines what kind of help you need based on the highlighted context:
+Kya-Ray automatically determines what kind of help you need without manual mode switching:
 
-- **Explain** — Plain-language definitions for unfamiliar words, technical terms, and concepts with strict anti-hallucination guardrails.
-- **Summarize** — Condenses long prose ($\ge 50$ words), articles, and meeting notes into 1–2 short sentences.
-- **Code** — Explains code snippets and terminal commands. Deterministic static diagnostics (`ast` + `difflib`) detect package typos (e.g. `panadas` $\to$ `pandas`) without inventing errors on valid code.
-- **Create** — Fulfills drafting requests directly (emails, replies, ideas) with single-output defaults and no conversational preamble (*"I'd be happy to..."*).
+- **Explain (`EXPLAIN`)** — Clear, objective definitions for unfamiliar words, technical terms, and complex concepts.
+- **Summarize (`SUMMARY`)** — Condenses long articles, status reports, email threads, and meeting notes into 1–2 crisp sentences with key action items.
+- **Code (`CODE`)** — Rigorous code analysis, execution flow inspection, syntax/logic defect diagnosis, and concrete fixes without hallucinating phantom warnings on valid code.
+- **Create (`CREATE`)** — Fulfills drafting requests directly (emails, replies, ideas) without conversational preamble (*"I'd be happy to help..."*).
 
 ---
 
-## Quickstart
+## System Architecture
 
-### 1. Prerequisites
-1. Install **Ollama for Windows** from [ollama.com](https://ollama.com/download/windows).
-2. Download the recommended model (~1.3 GB) in PowerShell or Command Prompt:
-   ```shell
-   ollama pull llama3.2:1b
-   ```
+```
+┌────────────────────────────────────────────────────────┐
+│                   Active Windows App                   │
+│         (VS Code, Browser, PDF, Terminal, etc.)        │
+└──────────────────────────┬─────────────────────────────┘
+                           │ 1. User highlights text & presses Ctrl+Alt+Space
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│               Kya-Ray Desktop (PySide6)                │
+│  - HotkeyListener: Global Windows keyboard hook        │
+│  - SelectionCapture: Win32 clipboard bridge & restore  │
+│  - Floating Card: Dynamic height sizing & smooth stream│
+│  - Persistent BackendClient: HTTP connection pool      │
+└──────────────────────────┬─────────────────────────────┘
+                           │ 2. POST /api/v1/ai/stream (SSE)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│            Kya-Ray Local Backend (FastAPI)             │
+│  - Bound to 127.0.0.1 (Loopback only)                  │
+│  - DNS Rebinding Protection (Host header validation)   │
+│  - Lifecycle bound via Windows Job Object              │
+│  - Error Masking: Strips API keys & Bearer tokens      │
+└──────────────────────────┬─────────────────────────────┘
+                           │ 3. HTTPS Async Streaming
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│             GroqCloud Accelerated Inference            │
+│  - Model: qwen/qwen3.8-27b                             │
+│  - High-speed token generation with real-time SSE      │
+└────────────────────────────────────────────────────────┘
+```
 
-### 2. Download & Run
-1. Download the latest **[v0.1.0-beta Windows release](https://github.com/dumbgesh/kya-ray/releases)** (`Kya-Ray-v0.1.0-beta-win64.zip`).
-2. Extract the ZIP anywhere and double-click **`START_KYA_RAY.bat`** (or `Kya-Ray\Kya-Ray.exe`).
-3. Highlight text in any application and press **`Ctrl + Alt + Space`**.
+---
+
+## Quickstart (Beta Release)
+
+1. Download **`Kya-Ray-v1.0.0-beta1-win64.zip`** from releases.
+2. Extract the archive.
+3. Run **`Install-Kya-Ray.bat`** (or run portably with `START_KYA_RAY.bat`).
+4. On first launch, the native setup window opens. Enter your free [Groq API Key](https://console.groq.com/keys) and click **Connect and continue**.
+5. Select text in any window and press **`Ctrl + Alt + Space`**!
 
 ### Controls
 
 | Action | Control |
 | :--- | :--- |
-| **Trigger Assistant** | Highlight text + `Ctrl + Alt + Space` |
-| **Dismiss Panel** | `Esc` or click `✕` in top-right |
-| **Copy Response** | Click `Copy` button |
-| **Reposition** | Click and drag anywhere on the panel |
-| **Exit Application** | Click `Exit` in top-right, or right-click $\to$ *Exit Kya-Ray* |
+| **Summon Assistant** | Highlight text + `Ctrl + Alt + Space` |
+| **Dismiss Window** | `Esc` or `Ctrl + W` |
+| **Copy Response** | `Ctrl + C` (when window is focused) or click `Copy` |
+| **Reposition** | Click and drag the header bar |
+| **Resize** | Drag the bottom-right grip handle (`:::`) |
+| **Exit Kya-Ray** | Right-click the card $\to$ *Exit Kya-Ray* |
 
 ---
 
 ## Running from Source
 
+### Prerequisites
+- Python 3.10+ (64-bit on Windows)
+- Free Groq API Key from [console.groq.com/keys](https://console.groq.com/keys)
+
+### Setup & Run
 ```powershell
 # Clone the repository
 git clone https://github.com/dumbgesh/kya-ray.git
@@ -74,48 +106,77 @@ cd kya-ray
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# Install dependencies
+# Install runtime and development dependencies
 pip install -r requirements.txt
 
-# Run application
-python prototype/main.py
+# Configure your Groq API key
+copy .env.example .env
+# Edit .env and set GROQ_API_KEY=gsk_...
 
-# Run test suite (75 tests)
-python -m unittest discover tests -v
+# Run the desktop application (auto-starts local backend)
+python desktop/app.py
+
+# Alternatively, run backend standalone for development:
+python -m backend.main
 ```
 
 ---
 
-## Tech Stack
+## Running the Automated Test Suite
 
-- **Runtime & GUI**: Python 3.10+ & Tkinter (minimal light card theme, dynamic height scaling, transparent keying)
-- **Global Hotkeys & Capture**: `pynput` (global Windows keyboard listener) & `pyperclip` (clipboard bridge & restore)
-- **Local AI Engine**: [Ollama](https://ollama.com) REST API (`localhost:11434`) running Meta's `llama3.2:1b`
-- **Packaging**: PyInstaller Windows x64 onedir standalone package
+Kya-Ray includes 296 comprehensive regression tests covering unit logic, integration pipelines, UI state transitions, packaging, and security protections:
 
----
+```powershell
+# Run the full test suite
+pytest
 
-## Current Status & Roadmap
+# Run with verbose output
+pytest -v
 
-The current public release is **`v0.1.0-beta`** (Windows x64 portable package). We are actively developing toward **`v1.0.0`**:
-
-- [x] Global `Ctrl + Alt + Space` shortcut detection with debouncing
-- [x] Four deterministic intents with static code diagnostics and preamble cleanup
-- [x] Minimal light UI panel with dynamic sizing and one-click copy button
-- [x] Comprehensive automated test suite (75 verified tests)
-- [ ] Response token streaming (`stream: true`) for $< 400$ ms perceived latency
-- [ ] Codebase modularization into structured Python package modules
-- [ ] Multi-monitor cursor positioning and native Windows system tray integration
+# Run specific test modules
+pytest tests/test_round2_product_quality.py
+pytest tests/test_intent_intelligence_overhaul.py
+pytest tests/test_backend_client_and_streaming.py
+```
 
 ---
 
 ## Documentation
 
-- [Windows Beta Quickstart Guide](README_BETA.md) — Detailed setup instructions, launcher details, and troubleshooting.
-- [Feature Specifications System](features/README.md) — Full specifications for core interactions, intent taxonomy, UI, and privacy.
+Comprehensive guides and technical documentation are available in [`docs/`](docs/):
+
+- **[User Guide](docs/guides/USER_GUIDE.md)** — Installation, daily workflows, intent handling, and settings.
+- **[Troubleshooting](docs/guides/TROUBLESHOOTING.md)** — Diagnostic steps for shortcuts, credentials, and network connectivity.
+- **[Beta Testing Guide](docs/guides/BETA_TESTING_GUIDE.md)** — Structured test scenarios for beta testers.
+- **[Architecture & Design](docs/architecture/understanding.md)** — Deep dive into Kya-Ray's client-server architecture and data flow.
+- **[Feature Specifications](docs/architecture/features/README.md)** — Detailed technical specifications for all core subsystem interactions.
+- **[Changelog](CHANGELOG.md)** — Release history and notable changes.
+
+---
+
+## Packaging Standalone Distribution
+
+Kya-Ray uses PyInstaller to produce a self-contained, onedir Windows distribution bundling the PySide6 desktop GUI and embedded FastAPI backend:
+
+```powershell
+# Build standalone distribution
+pyinstaller kya-ray.spec --noconfirm
+
+# Output is generated in:
+#   dist\Kya-Ray\Kya-Ray.exe
+```
+
+---
+
+## Security & Privacy
+
+- **Zero User Text Logging:** Selected text, prompts, and model responses are strictly held in volatile memory and never logged to disk.
+- **Loopback Backend:** The local backend binds exclusively to `127.0.0.1` and includes Host header validation to eliminate DNS rebinding attacks.
+- **Backend-Only Credentials:** API keys are never bundled, never transmitted to the frontend GUI, and masked from all error details.
+- **Clipboard Safety:** Previous user clipboard contents are automatically recorded and restored immediately after selection capture.
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Copyright (C) 2026 Kya-Ray Contributors. Distributed under the MIT License.
