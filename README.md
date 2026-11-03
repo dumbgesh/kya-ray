@@ -2,9 +2,9 @@
 
 *A context-aware AI desktop companion for Windows.*
 
-Kya-Ray helps you understand and work with whatever you are looking at—code, prose, documentation, notes, or data—right where you are.
+Understand and work with what you're looking at, without switching between apps.
 
-Select something. Press **`Ctrl + Alt + Space`**. Keep going.
+**Select. Press `Ctrl + Alt + Space`. Keep going.**
 
 ![Kya-Ray — product vision](assets/kya-ray-vision.png)
 
@@ -12,9 +12,9 @@ Select something. Press **`Ctrl + Alt + Space`**. Keep going.
 
 ## What is Kya-Ray?
 
-When reading documentation, reviewing code, or troubleshooting errors, you often encounter unfamiliar terms, complex code snippets, or lengthy text. Normally, you have to copy the text, open a browser, paste it into an AI chat, write a prompt, and switch back.
+Ever come across something confusing while reading documentation, browsing, coding, or writing?
 
-Kya-Ray streamlines this into a single keystroke:
+Instead of copying text into an external browser chat, Kya-Ray brings AI assistance directly to your workflow in a single keystroke:
 
 1. **Highlight text** in any application (browser, IDE, PDF, terminal, or document).
 2. **Press `Ctrl + Alt + Space`**.
@@ -179,4 +179,4 @@ pyinstaller kya-ray.spec --noconfirm
 
 ## License
 
-Copyright (C) 2026 Kya-Ray Contributors. Distributed under the MIT License.
+Kya-Ray is open-source software licensed under the [MIT License](LICENSE).
