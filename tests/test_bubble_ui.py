@@ -203,13 +203,16 @@ class TestFloatingBubbleWindow(unittest.TestCase):
 
     def test_copy_button_present_and_copies(self):
         """Verifies Copy button is present and copies answer to clipboard with transient feedback."""
+        from unittest.mock import patch
         self.assertTrue(hasattr(self.app, "copy_btn"))
         self.assertEqual(self.app.copy_btn.cget("text"), "Copy")
         self.app._current_raw_answer = "Test answer text to copy"
-        self.app.on_copy()
-        self.assertEqual(self.app.copy_btn.cget("text"), "Copied!")
-        import pyperclip
-        self.assertEqual(pyperclip.paste(), "Test answer text to copy")
+        with patch("pyperclip.copy") as mock_copy, patch("pyperclip.paste", return_value="Test answer text to copy"):
+            self.app.on_copy()
+            self.assertEqual(self.app.copy_btn.cget("text"), "Copied!")
+            mock_copy.assert_called_with("Test answer text to copy")
+            import pyperclip
+            self.assertEqual(pyperclip.paste(), "Test answer text to copy")
 
     def test_render_formatted_response_tags(self):
         """Verifies render_formatted_response populates text and sets appropriate tags."""
