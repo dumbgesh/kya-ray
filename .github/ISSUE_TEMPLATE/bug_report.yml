@@ -1,0 +1,56 @@
+name: Bug Report
+description: Create a report to help us fix an issue
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the details below.
+  - type: input
+    id: version
+    attributes:
+      label: Kya-Ray Version
+      description: What version of Kya-Ray are you running? (e.g., v1.0.0-beta1 or commit SHA)
+      placeholder: "v1.0.0-beta1"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: Exact Windows version and build
+      placeholder: "Windows 11 Pro 64-bit (Build 22631)"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Select text in '...'
+        2. Press 'Ctrl + Alt + Space'
+        3. See error '...'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs or Error Output
+      description: Please copy and paste any terminal output or logs (ensure all API keys are redacted!).
+      render: shell
+
