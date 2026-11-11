@@ -4,7 +4,7 @@ All notable changes to the Kya-Ray desktop application are documented in this fi
 
 ---
 
-## [v1.0.0-beta1] - 2026-11-03
+## [v1.0.0-beta.1] - 2026-11-03
 
 ### Added
 - **Integrated First-Launch Setup Window**: Native PySide6 setup window allowing users to enter and verify their Groq API key graphically on first run without touching `.env` or opening a terminal.
