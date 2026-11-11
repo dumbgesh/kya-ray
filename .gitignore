@@ -37,6 +37,7 @@ junit/
 scratch/
 tmp/
 temp/
+test_env/
 
 # IDE & Editor caches
 .idea/
