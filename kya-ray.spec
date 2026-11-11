@@ -8,6 +8,13 @@ FastAPI cloud backend, GroqCloud provider, and system tray/hotkey listeners.
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
+# Synchronize Windows PE executable metadata with authoritative version
+try:
+    from desktop.version import sync_file_version_info
+    sync_file_version_info()
+except Exception:
+    pass
+
 block_cipher = None
 
 # Comprehensive collection of submodules required for runtime dynamic imports
@@ -51,6 +58,7 @@ hiddenimports += collect_submodules('pydantic_core')
 hiddenimports += collect_submodules('dotenv')
 hiddenimports += collect_submodules('backend')
 hiddenimports += collect_submodules('desktop')
+hiddenimports.append('version')
 
 # Remove duplicate imports while preserving order
 hiddenimports = list(dict.fromkeys(hiddenimports))
