@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "       Kya-Ray v1.0.0 - Windows Application Installer     " -ForegroundColor Cyan
+Write-Host "       Kya-Ray v1.0.0-beta.1 - Windows Application Installer     " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -105,7 +105,7 @@ if (-not (Test-Path $regPath)) {
 $sizeKb = [int]((Get-ChildItem -Path $InstallDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1KB)
 
 Set-ItemProperty -Path $regPath -Name "DisplayName" -Value "Kya-Ray (Desktop AI Companion)"
-Set-ItemProperty -Path $regPath -Name "DisplayVersion" -Value "1.0.0"
+Set-ItemProperty -Path $regPath -Name "DisplayVersion" -Value "1.0.0-beta.1"
 Set-ItemProperty -Path $regPath -Name "Publisher" -Value "Kya-Ray Contributors"
 Set-ItemProperty -Path $regPath -Name "InstallLocation" -Value $InstallDir
 Set-ItemProperty -Path $regPath -Name "DisplayIcon" -Value "$InstallDir\Kya-Ray.exe,0"
