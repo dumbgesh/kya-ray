@@ -32,6 +32,7 @@ env/
 htmlcov/
 junit/
 *.log
+*.pid
 
 # Scratch & temporary development files
 scratch/
