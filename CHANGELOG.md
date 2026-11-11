@@ -1,36 +1,50 @@
-# Changelog - Kya-Ray
+# Changelog
 
 All notable changes to the Kya-Ray desktop application are documented in this file.
 
 ---
 
-## [v1.0.0-beta.1] - 2026-11-03
+## [1.0.0-beta.2] - 2026-11-11
 
-### Added
-- **Integrated First-Launch Setup Window**: Native PySide6 setup window allowing users to enter and verify their Groq API key graphically on first run without touching `.env` or opening a terminal.
-- **Show/Hide Key Toggle**: Masked password field with dynamic Show/Hide toggle.
-- **Secure Windows Credential Manager Storage**: Integrated with Windows `advapi32.dll` (`CredWriteW`/`CredReadW`), encrypting credentials via the active Windows user profile's DPAPI master key.
-- **Zero Plaintext Key Requirement**: Application runs fully self-contained without requiring `.env` files on disk.
-- **Pure ASGI DNS Rebinding Protection**: Implemented `HostValidationMiddleware` to reject untrusted host headers and guard against DNS rebinding attacks while avoiding `BaseHTTPMiddleware` overhead.
-- **Credential Replacement Security**: Settings dialog keeps the input field blank and preserves the old credential if validation fails.
-- **Clean Application Shutdown**: Ensures both the PySide6 UI and the owned FastAPI backend terminate cleanly with exit code `0`.
-- **Automated Regression Suite**: Expanded automated test suite to 296 passing tests with native `faulthandler_timeout` protection.
+### What's new
+- **In-app update checks**: Kya-Ray can now check for updates from inside the app.
+- **Visual download progress**: Updates download with live progress tracking and integrity validation before installation.
+- **Safer installation process**: The updater installs updates safely in the background, with automatic backup and recovery if something goes wrong.
+- **Background update checks**: Update checks can now run periodically in the background so you know when a new version is ready.
 
-### Improved
-- **Real-Time Streaming Performance**: Live SSE streaming connected to GroqCloud's `qwen/qwen3.8-27b` model with sub-second response latency.
-- **Clipboard Preservation**: Guaranteed restoration of original clipboard contents after selection capture.
-- **Self-Healing Backend Lifecycle**: Background process manager automatically starts, health-checks, and cleans up local services.
-- **Windows Packaging**: Self-contained PyInstaller distribution with clean installer and uninstaller scripts registering in Windows Add/Remove Programs.
+### Improvements
+- Improved the Windows update and installation experience.
+- Added clearer update progress reporting and error handling.
+- Enhanced application startup safety and recovery after an interrupted update.
 
----
-
-## [v0.2.0-beta] - 2026-11-03
-- Initial controlled packaging with PyInstaller.
-- Added `START_KYA_RAY.bat`, `Install-Kya-Ray.bat`, and `Configure-API-Key.bat`.
-- Migrated LLM backend to GroqCloud (`qwen/qwen3.8-27b`).
+### Notes
+- This is a beta release. You may encounter bugs.
+- A free Groq API key is required for AI features.
 
 ---
 
-## [v0.1.0-beta] - 2026-10-29
-- Initial Tkinter prototype and local LLM integration.
+## [1.0.0-beta.1] - 2026-11-03
 
+### What's new
+- **Setup window**: Added a setup window to easily configure and test your Groq API key on first launch.
+- **Secure credential storage**: Stored API keys securely in Windows Credential Manager without keeping plaintext secrets in local files.
+- **Fast streaming responses**: Streaming AI responses connected to GroqCloud for low-latency answers.
+- **Clipboard preservation**: Original clipboard content is preserved whenever text is captured.
+
+### Improvements
+- Packaged as a standalone Windows application with installer and portable launch scripts.
+- Clean application shutdown ensuring both desktop interface and local background service stop together.
+
+---
+
+## [0.2.0-beta] - 2026-11-03
+
+- Initial standalone Windows packaging.
+- Added installer and launcher scripts.
+- Switched AI inference backend to GroqCloud.
+
+---
+
+## [0.1.0-beta] - 2026-10-29
+
+- Initial prototype release.
