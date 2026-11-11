@@ -20,6 +20,8 @@ from PySide6.QtWidgets import QApplication
 from desktop.core.orchestrator import AppOrchestrator
 from desktop.ui.bubble import AssistantBubbleWindow
 from desktop.ui.setup_window import ApiKeySetupWindow
+from desktop.ui.update_controller import UpdateController
+from desktop.ui.update_window import UpdateWindow
 from desktop.utils.config import APP_NAME, APP_VERSION, SHORTCUT_COMBINATION_NAME
 from desktop.utils.credentials import has_stored_api_key
 from desktop.utils.logger import setup_safe_logging
@@ -60,6 +62,13 @@ class KyaRayApplication:
         self.window = window or AssistantBubbleWindow()
         self.setup_window: Optional[ApiKeySetupWindow] = None
         self._is_shutting_down = False
+
+        # Initialize automatic update controller
+        self.update_controller = UpdateController(
+            parent=self.bridge,
+            get_backend_pid_fn=self._get_backend_pid,
+        )
+        self.update_window: Optional[UpdateWindow] = None
 
         # Build or wrap the orchestrator with callbacks forwarding into the Qt signal bridge
         self.orchestrator = orchestrator or AppOrchestrator(
@@ -115,6 +124,9 @@ class KyaRayApplication:
         # UI -> App lifecycle and configuration
         self.window.exit_requested.connect(self.shutdown)
         self.window.setup_requested.connect(lambda: self.open_setup_window(is_update=True))
+        self.window.update_requested.connect(self.open_update_window)
+        self.update_controller.bridge.sig_handoff_started.connect(self._on_update_handoff_started)
+        self.update_controller.bridge.sig_update_available_alert.connect(self._on_update_available_alert)
         self.qapp.aboutToQuit.connect(self.shutdown)
 
     # -------------------------------------------------------------------------
@@ -187,6 +199,41 @@ class KyaRayApplication:
             popup=True,
         )
 
+    def _get_backend_pid(self) -> Optional[int]:
+        """Returns the PID of the spawned FastAPI backend process if running."""
+        if self.orchestrator and self.orchestrator.backend_manager:
+            proc = getattr(self.orchestrator.backend_manager, "_process", None)
+            if proc and hasattr(proc, "pid"):
+                return proc.pid
+        return None
+
+    def open_update_window(self):
+        """Displays the Software Update dialog centered on the active screen."""
+        if self.update_window is None:
+            self.update_window = UpdateWindow(controller=self.update_controller)
+
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            x = geo.center().x() - self.update_window.width() // 2
+            y = geo.center().y() - self.update_window.height() // 2
+            self.update_window.move(max(10, x), max(10, y))
+
+        self.update_window.show()
+        self.update_window.raise_()
+        self.update_window.activateWindow()
+
+    def _on_update_available_alert(self, result):
+        """Notifies the user that a verified update is ready to download."""
+        # Non-intrusively update bubble status if visible or inform user
+        if hasattr(self.window, "status_label") and not self.update_window:
+            self.window.status_label.setText(f"Update available: v{result.latest_version}")
+
+    def _on_update_handoff_started(self):
+        """Executed when the detached updater process is launched; triggers clean app exit."""
+        print(f"[{APP_NAME}] Detached updater launched. Closing application for update...", flush=True)
+        self.shutdown()
+
     def check_first_launch_setup(self) -> bool:
         """
         Determines whether a valid API key exists locally.
@@ -213,6 +260,27 @@ class KyaRayApplication:
 
         self.orchestrator.start(check_prereqs=check_prereqs)
         self.check_first_launch_setup()
+        self._write_readiness_handshake()
+
+        # Schedule quiet background update check after startup (respects 4h cooldown)
+        QTimer.singleShot(3000, lambda: self.update_controller.check_for_updates(manual=False))
+
+    def _write_readiness_handshake(self) -> None:
+        """Writes handshake file for the update installer if requested via environment variable."""
+        import json
+        import os
+        handshake_path = os.environ.get("KYA_RAY_HANDSHAKE_FILE")
+        if handshake_path:
+            try:
+                data = {
+                    "status": "ready",
+                    "version": APP_VERSION,
+                    "pid": os.getpid(),
+                }
+                with open(handshake_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+            except Exception:
+                pass
 
     def shutdown(self):
         """Clean shutdown of background listener, threads, and UI."""
@@ -225,6 +293,17 @@ class KyaRayApplication:
             self.orchestrator.stop()
         except Exception as e:
             print(f"[Warning] Error stopping orchestrator: {e}", flush=True)
+
+        try:
+            self.update_controller.shutdown()
+        except Exception as e:
+            print(f"[Warning] Error stopping update controller: {e}", flush=True)
+
+        if self.update_window is not None:
+            try:
+                self.update_window.close()
+            except Exception:
+                pass
 
         try:
             self.window.dismiss()
@@ -264,6 +343,11 @@ def main():
     import multiprocessing
     multiprocessing.freeze_support()
 
+    # If invoked with --updater, run the standalone update installer
+    if "--updater" in sys.argv:
+        from desktop.updater.cli import main as updater_main
+        sys.exit(updater_main())
+
     # If invoked with --backend, run the embedded backend server directly
     if "--backend" in sys.argv:
         from desktop.utils.config import BACKEND_HOST, BACKEND_PORT
@@ -281,6 +365,25 @@ def main():
         sys.exit(0)
 
     setup_safe_logging()
+
+    # Recover any incomplete update transaction from a prior interrupted update
+    try:
+        from desktop.updater.installer import UpdateInstaller
+        from desktop.updater.models import RollbackStatus
+        installer = UpdateInstaller()
+        recovery_result = installer.recover_interrupted_transaction()
+        if recovery_result and recovery_result.rollback_status == RollbackStatus.FAILED:
+            print(
+                f"[FATAL] Update transaction recovery failed: {recovery_result.error_message}\n"
+                "The installation directory may be incomplete. Halting startup for safety.",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
+    except Exception as e:
+        print(f"[FATAL] Error during update transaction recovery check: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
     app = KyaRayApplication()
     sys.exit(app.run())
 
