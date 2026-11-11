@@ -23,7 +23,7 @@ VSVersionInfo(
             StringStruct('LegalCopyright', 'Copyright (C) 2026 Kya-Ray Contributors'),
             StringStruct('OriginalFilename', 'Kya-Ray.exe'),
             StringStruct('ProductName', 'Kya-Ray'),
-            StringStruct('ProductVersion', '1.0.0')
+            StringStruct('ProductVersion', '1.0.0-beta.1')
           ]
         )
       ]
