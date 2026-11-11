@@ -163,6 +163,7 @@ class AssistantBubbleWindow(QWidget):
     dismissed = Signal()
     exit_requested = Signal()
     setup_requested = Signal()
+    update_requested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -409,6 +410,8 @@ class AssistantBubbleWindow(QWidget):
         menu.addSeparator()
         setup_action = menu.addAction("Configure API Key...")
         setup_action.triggered.connect(self.setup_requested.emit)
+        update_action = menu.addAction("Check for Updates...")
+        update_action.triggered.connect(self.update_requested.emit)
         menu.addSeparator()
         dismiss_action = menu.addAction("Dismiss (Esc)")
         dismiss_action.triggered.connect(self.dismiss)
