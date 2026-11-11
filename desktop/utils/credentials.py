@@ -21,7 +21,16 @@ from typing import Optional
 # Windows Credential Manager Constants
 CRED_TYPE_GENERIC = 1
 CRED_PERSIST_LOCAL_MACHINE = 2
-CRED_TARGET_NAME = "Kya-Ray/GroqApiKey"
+DEFAULT_CRED_TARGET_NAME = "Kya-Ray/GroqApiKey"
+
+
+def get_default_cred_target() -> str:
+    """Returns the active Windows Credential Manager target, supporting test overrides."""
+    target = os.environ.get("KYA_RAY_CRED_TARGET", "").strip()
+    return target if target else DEFAULT_CRED_TARGET_NAME
+
+
+CRED_TARGET_NAME = DEFAULT_CRED_TARGET_NAME
 CRED_USERNAME = "Kya-Ray Desktop"
 
 # In-memory mock storage (for automated test environments or when explicitly enabled)
@@ -59,11 +68,13 @@ if is_windows():
         ]
 
 
-def store_api_key(api_key: str, target_name: str = CRED_TARGET_NAME) -> bool:
+def store_api_key(api_key: str, target_name: Optional[str] = None) -> bool:
     """
     Securely saves the Groq API key into Windows Credential Manager.
     Returns True upon success, False otherwise.
     """
+    if target_name is None or target_name == DEFAULT_CRED_TARGET_NAME:
+        target_name = get_default_cred_target()
     cleaned = (api_key or "").strip()
     if not cleaned:
         return False
@@ -97,12 +108,14 @@ def store_api_key(api_key: str, target_name: str = CRED_TARGET_NAME) -> bool:
         return False
 
 
-def get_stored_api_key(target_name: str = CRED_TARGET_NAME) -> Optional[str]:
+def get_stored_api_key(target_name: Optional[str] = None) -> Optional[str]:
     """
     Retrieves the Groq API key from Windows Credential Manager.
     Falls back to environment variable or .env if no credential is in Credential Manager.
     Returns None if not found or empty.
     """
+    if target_name is None or target_name == DEFAULT_CRED_TARGET_NAME:
+        target_name = get_default_cred_target()
     global _test_credential_store
     if _test_credential_store is not None:
         key = _test_credential_store.get(target_name)
@@ -133,11 +146,13 @@ def get_stored_api_key(target_name: str = CRED_TARGET_NAME) -> Optional[str]:
     return None
 
 
-def delete_stored_api_key(target_name: str = CRED_TARGET_NAME) -> bool:
+def delete_stored_api_key(target_name: Optional[str] = None) -> bool:
     """
     Removes the stored Groq API key from Windows Credential Manager.
     Returns True if successfully removed or was not present.
     """
+    if target_name is None or target_name == DEFAULT_CRED_TARGET_NAME:
+        target_name = get_default_cred_target()
     global _test_credential_store
     if _test_credential_store is not None:
         _test_credential_store.pop(target_name, None)
@@ -154,7 +169,9 @@ def delete_stored_api_key(target_name: str = CRED_TARGET_NAME) -> bool:
         return False
 
 
-def has_stored_api_key(target_name: str = CRED_TARGET_NAME) -> bool:
+def has_stored_api_key(target_name: Optional[str] = None) -> bool:
     """Returns True if a non-empty API key is available via Credential Manager or fallback."""
+    if target_name is None or target_name == DEFAULT_CRED_TARGET_NAME:
+        target_name = get_default_cred_target()
     key = get_stored_api_key(target_name=target_name)
     return bool(key and key.strip())
