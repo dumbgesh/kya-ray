@@ -5,10 +5,11 @@ Centralized Configuration and Constants for Kya-Ray Desktop.
 import ctypes
 import os
 
+from desktop.version import APP_VERSION
+
 # Application Metadata
 APP_NAME = "Kya-Ray"
-APP_VERSION = "1.0.0"
-APP_TARGET_VERSION = "1.0.0"
+APP_TARGET_VERSION = APP_VERSION
 
 # Local AI Engine (Ollama) Settings
 OLLAMA_HOST = "http://127.0.0.1:11434"
