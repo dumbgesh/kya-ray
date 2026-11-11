@@ -11,7 +11,7 @@ from typing import Any, List, Optional
 try:
     from version import APP_VERSION
 except ImportError:
-    APP_VERSION = "1.0.0-beta.1"
+    APP_VERSION = "1.0.0-beta.2"
 
 
 def get_env_file_candidates() -> List[Path]:

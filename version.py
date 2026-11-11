@@ -13,7 +13,7 @@ import re
 from typing import Any, List, Optional, Tuple, Union
 
 # Authoritative Application Version (Single Source of Truth)
-__version__ = "1.0.0-beta.1"
+__version__ = "1.0.0-beta.2"
 APP_VERSION = __version__
 
 # Regular expression strictly following Semantic Versioning 2.0.0

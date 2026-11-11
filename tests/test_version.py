@@ -39,12 +39,12 @@ class TestVersionSingleSourceOfTruth(unittest.TestCase):
 
     def test_version_constants_match(self):
         """Authoritative version constants must match across modules."""
-        self.assertEqual(APP_VERSION, "1.0.0-beta.1")
-        self.assertEqual(__version__, "1.0.0-beta.1")
-        self.assertEqual(desktop.__version__, "1.0.0-beta.1")
-        self.assertEqual(desktop.APP_VERSION, "1.0.0-beta.1")
-        self.assertEqual(CONFIG_APP_VERSION, "1.0.0-beta.1")
-        self.assertEqual(APP_TARGET_VERSION, "1.0.0-beta.1")
+        self.assertEqual(APP_VERSION, "1.0.0-beta.2")
+        self.assertEqual(__version__, "1.0.0-beta.2")
+        self.assertEqual(desktop.__version__, "1.0.0-beta.2")
+        self.assertEqual(desktop.APP_VERSION, "1.0.0-beta.2")
+        self.assertEqual(CONFIG_APP_VERSION, "1.0.0-beta.2")
+        self.assertEqual(APP_TARGET_VERSION, "1.0.0-beta.2")
 
     def test_backend_settings_version(self):
         """Backend Settings must report the authoritative version."""
@@ -240,7 +240,7 @@ class TestSemVerComparison(unittest.TestCase):
         self.assertEqual(curr.major, 1)
         self.assertEqual(curr.minor, 0)
         self.assertEqual(curr.patch, 0)
-        self.assertEqual(curr.prerelease, ("beta", 1))
+        self.assertEqual(curr.prerelease, ("beta", 2))
         self.assertTrue(curr.is_prerelease)
 
 

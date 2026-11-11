@@ -597,9 +597,9 @@ def test_production_safety_invariants():
     if repo_dist.exists():
         assert not (repo_dist / "Kya-Ray" / "v2_marker.txt").exists(), "v2 marker leaked into repo dist!"
 
-    # 2. Tracked version.py must remain strictly 1.0.0-beta.1
+    # 2. Tracked version.py must remain strictly 1.0.0-beta.2
     repo_version_py = Path(r"C:\kya-ray\version.py").read_text(encoding="utf-8")
-    assert '__version__ = "1.0.0-beta.1"' in repo_version_py
+    assert '__version__ = "1.0.0-beta.2"' in repo_version_py
 
     # 3. Test registry must be distinct from production
     assert RegistryManager().subkey == r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Kya-Ray"

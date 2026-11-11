@@ -466,7 +466,7 @@ class TestPaginationAndSharedArchitecture(unittest.TestCase):
         import version
         import desktop.version
 
-        self.assertEqual(version.APP_VERSION, "1.0.0-beta.1")
+        self.assertEqual(version.APP_VERSION, "1.0.0-beta.2")
         self.assertEqual(desktop.version.APP_VERSION, version.APP_VERSION)
         self.assertEqual(desktop.version.SemVer, version.SemVer)
 
