@@ -68,7 +68,7 @@ class MockTestProvider(AIProvider):
 class TestBackendConfig(unittest.TestCase):
     def test_default_settings(self):
         settings = get_settings()
-        self.assertEqual(settings.APP_VERSION, "1.0.0")
+        self.assertEqual(settings.APP_VERSION, "1.0.0-beta.1")
         self.assertGreaterEqual(settings.MAX_INPUT_LENGTH, 1000)
         self.assertTrue(hasattr(settings, "GROQ_MODEL"))
 

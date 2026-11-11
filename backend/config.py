@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
+try:
+    from version import APP_VERSION
+except ImportError:
+    APP_VERSION = "1.0.0-beta.1"
+
 
 def get_env_file_candidates() -> List[Path]:
     """Returns candidate paths for .env in search priority order."""
@@ -123,7 +128,7 @@ class Settings:
 
         # Service Information
         self.APP_NAME: str = "Kya-Ray Cloud Backend"
-        self.APP_VERSION: str = "1.0.0"
+        self.APP_VERSION: str = APP_VERSION
 
         # Server Settings
         self.HOST: str = os.getenv("BACKEND_HOST", "127.0.0.1").strip() or "127.0.0.1"
