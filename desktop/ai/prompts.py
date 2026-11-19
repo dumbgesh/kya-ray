@@ -154,6 +154,8 @@ def build_intent_prompt(text: str, intent: str) -> str:
         elif not is_multiple and qty == 1:
             extra_guidance = (
                 "\nProvide exactly ONE finished output directly without multiple options or alternatives. "
+                "Craft an original, context-aware response using natural language and varied phrasing, "
+                "avoiding generic clichés, stock templates, or repetitive tropes. "
                 "Do not include conversational preamble. "
                 "Output only the created text, finishing cleanly with terminal punctuation."
             )

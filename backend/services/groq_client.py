@@ -31,6 +31,27 @@ class GroqRateLimitError(RuntimeError):
     pass
 
 
+DEFAULT_TEMPERATURE: float = 0.2
+
+INTENT_TEMPERATURES: Dict[str, float] = {
+    "-create": 0.7,
+    "-explain": 0.2,
+    "-summarize": 0.2,
+    "-code": 0.2,
+}
+
+
+def get_intent_temperature(intent: Optional[str]) -> float:
+    """
+    Resolves the sampling temperature for a given intent.
+    Uses 0.7 for creative generation to ensure natural variety and avoid clichés,
+    while maintaining 0.2 for analytical, factual, and code tasks.
+    """
+    if not intent:
+        return DEFAULT_TEMPERATURE
+    return INTENT_TEMPERATURES.get(intent, DEFAULT_TEMPERATURE)
+
+
 SYSTEM_REASONING_PROMPT = (
     "You are Kya-Ray, an intelligent, accurate, and concise desktop AI companion.\n\n"
     "### Core Reasoning Principles:\n"
@@ -96,6 +117,11 @@ class GroqProvider(AIProvider):
         key = self._get_api_key()
         return bool(key and key.strip())
 
+    @classmethod
+    def get_temperature(cls, intent: Optional[str]) -> float:
+        """Resolves the sampling temperature tailored to the given intent."""
+        return get_intent_temperature(intent)
+
     async def close(self) -> None:
         """Closes the underlying AsyncGroq client and releases HTTP connection pool."""
         if self._client is not None:
@@ -127,11 +153,12 @@ class GroqProvider(AIProvider):
         messages = self._build_messages(text, intent)
 
         start_time = time.perf_counter()
+        temperature = self.get_temperature(intent)
         try:
             completion = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.2,
+                temperature=temperature,
                 max_tokens=384,
                 stream=False,
             )
@@ -181,11 +208,12 @@ class GroqProvider(AIProvider):
         messages = self._build_messages(text, intent)
         stream_response = None
 
+        temperature = self.get_temperature(intent)
         try:
             stream_response = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.2,
+                temperature=temperature,
                 max_tokens=384,
                 stream=True,
             )
