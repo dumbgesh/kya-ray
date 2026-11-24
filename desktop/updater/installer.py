@@ -54,6 +54,147 @@ def default_data_dir() -> Path:
     return (Path(local_app_data) / "Kya-Ray").resolve()
 
 
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    class FILETIME(ctypes.Structure):
+        _fields_ = [
+            ("dwLowDateTime", wintypes.DWORD),
+            ("dwHighDateTime", wintypes.DWORD),
+        ]
+
+    _kernel32 = ctypes.windll.kernel32
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    SYNCHRONIZE = 0x00100000
+    STILL_ACTIVE = 259
+    ERROR_ACCESS_DENIED = 5
+    ERROR_INVALID_PARAMETER = 87
+
+    # Explicit 64-bit ctypes function prototypes
+    _OpenProcess = _kernel32.OpenProcess
+    _OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _OpenProcess.restype = wintypes.HANDLE
+
+    _GetExitCodeProcess = _kernel32.GetExitCodeProcess
+    _GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    _GetExitCodeProcess.restype = wintypes.BOOL
+
+    _GetLastError = _kernel32.GetLastError
+    _GetLastError.argtypes = []
+    _GetLastError.restype = wintypes.DWORD
+
+    _CloseHandle = _kernel32.CloseHandle
+    _CloseHandle.argtypes = [wintypes.HANDLE]
+    _CloseHandle.restype = wintypes.BOOL
+
+    _GetProcessTimes = _kernel32.GetProcessTimes
+    _GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(FILETIME),
+        ctypes.POINTER(FILETIME),
+        ctypes.POINTER(FILETIME),
+        ctypes.POINTER(FILETIME),
+    ]
+    _GetProcessTimes.restype = wintypes.BOOL
+
+
+def get_process_start_time(pid: Optional[int]) -> Optional[int]:
+    """
+    Returns the creation timestamp (64-bit Windows FILETIME integer) for a given PID.
+    Returns None if the process cannot be queried or on non-Windows platforms.
+    """
+    if not pid or pid <= 0 or sys.platform != "win32":
+        return None
+    try:
+        h_proc = _OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h_proc:
+            return None
+        try:
+            creation = FILETIME()
+            exit_t = FILETIME()
+            kernel_t = FILETIME()
+            user_t = FILETIME()
+            if _GetProcessTimes(
+                h_proc,
+                ctypes.byref(creation),
+                ctypes.byref(exit_t),
+                ctypes.byref(kernel_t),
+                ctypes.byref(user_t),
+            ):
+                return (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+            return None
+        finally:
+            _CloseHandle(h_proc)
+    except Exception:
+        return None
+
+
+def is_pid_running(pid: Optional[int], expected_start_time: Optional[int] = None) -> bool:
+    """
+    Checks whether the process with the given PID is currently active.
+    If expected_start_time is provided on Windows, verifies that the target process's
+    creation time matches to guard against PID reuse.
+    """
+    if not pid or pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            h_proc = _OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, pid)
+            if not h_proc:
+                last_err = _GetLastError()
+                # Access denied means a process definitely exists with this PID (protected or elevated)
+                if last_err == ERROR_ACCESS_DENIED:
+                    # If no expected start time was provided, conservatively assume it is running.
+                    # If expected start time was provided, an inaccessible system process is not our installer.
+                    return expected_start_time is None
+                # ERROR_INVALID_PARAMETER (87) or others mean PID does not exist
+                return False
+
+            try:
+                # 1. Check exit code
+                exit_code = wintypes.DWORD()
+                if _GetExitCodeProcess(h_proc, ctypes.byref(exit_code)):
+                    if exit_code.value != STILL_ACTIVE:
+                        return False
+
+                # 2. Query process times to guard against PID reuse and exit code edge cases
+                creation = FILETIME()
+                exit_t = FILETIME()
+                kernel_t = FILETIME()
+                user_t = FILETIME()
+                if _GetProcessTimes(
+                    h_proc,
+                    ctypes.byref(creation),
+                    ctypes.byref(exit_t),
+                    ctypes.byref(kernel_t),
+                    ctypes.byref(user_t),
+                ):
+                    # If exit time is non-zero, process has exited even if exit code was STILL_ACTIVE (259)
+                    if exit_t.dwLowDateTime != 0 or exit_t.dwHighDateTime != 0:
+                        return False
+
+                    # Check start time match if expected_start_time was recorded
+                    if expected_start_time is not None:
+                        actual_start = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+                        if actual_start != expected_start_time:
+                            # PID was recycled by Windows for a different process!
+                            return False
+
+                return True
+            finally:
+                _CloseHandle(h_proc)
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+
+
 class UpdateInstaller:
     """
     Transactional update engine supporting safe installation, rollback,
@@ -72,6 +213,7 @@ class UpdateInstaller:
         process_handoff: Optional[ProcessHandoff] = None,
         app_launcher: Optional[Callable[[Path], subprocess.Popen]] = None,
         handshake_timeout: float = STARTUP_HANDSHAKE_TIMEOUT,
+        pid_checker: Optional[Callable[..., bool]] = None,
     ):
         self.install_dir = Path(install_dir or default_install_dir()).resolve()
         self.data_dir = Path(data_dir or default_data_dir()).resolve()
@@ -80,6 +222,7 @@ class UpdateInstaller:
         self.process_handoff = process_handoff or ProcessHandoff(self.install_dir)
         self._app_launcher = app_launcher
         self.handshake_timeout = handshake_timeout
+        self._is_pid_running = pid_checker or is_pid_running
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.transaction_file_path = self.data_dir / self.TRANSACTION_FILE
@@ -111,6 +254,8 @@ class UpdateInstaller:
         staging_dir: Path,
         preserve_env: bool = True,
     ) -> TransactionRecord:
+        installer_pid = os.getpid()
+        installer_start_time = get_process_start_time(installer_pid)
         record = TransactionRecord(
             transaction_id=transaction_id,
             state=state,
@@ -121,6 +266,8 @@ class UpdateInstaller:
             staging_dir=str(staging_dir),
             preserve_env=preserve_env,
             timestamp=time.time(),
+            installer_pid=installer_pid,
+            installer_start_time=installer_start_time,
         )
         try:
             temp_tx = self.transaction_file_path.with_suffix(".tmp")
@@ -161,6 +308,8 @@ class UpdateInstaller:
             backup_dir_raw = data.get("backup_dir", "")
             staging_dir_raw = data.get("staging_dir", "")
             prev_version = data.get("previous_version", "")
+            installer_pid = data.get("installer_pid")
+            installer_start_time = data.get("installer_start_time")
         except Exception as e:
             self._log("error", f"Malformed transaction file during recovery: {e}")
             # Do not delete or overwrite the invalid transaction record; preserve it for diagnosis/manual recovery
@@ -174,6 +323,26 @@ class UpdateInstaller:
         if state == TransactionState.COMMITTED:
             self._clear_transaction()
             return None
+
+        # Active installer process protection:
+        # If the installer that recorded this transaction is still actively running,
+        # this transaction is in-progress (e.g. validating startup handshake), NOT interrupted.
+        if installer_pid and installer_pid != os.getpid():
+            is_running = False
+            try:
+                is_running = self._is_pid_running(installer_pid, installer_start_time)
+            except TypeError:
+                is_running = self._is_pid_running(installer_pid)
+            except Exception:
+                is_running = is_pid_running(installer_pid, installer_start_time)
+
+            if is_running:
+                self._log(
+                    "info",
+                    f"Update transaction {data.get('transaction_id')} is actively managed by running "
+                    f"installer PID {installer_pid}. Skipping recovery.",
+                )
+                return None
 
         # Validate deserialized backup_dir and staging_dir paths
         expected_parent = self.install_dir.parent.resolve()
@@ -262,6 +431,35 @@ class UpdateInstaller:
         rollback_ok = False
         if backup_dir.is_dir():
             try:
+                # Process and directory locking safety:
+                # Check whether current process is executing from inside install_dir
+                current_exe = Path(sys.executable).resolve()
+                is_running_from_install = False
+                try:
+                    is_running_from_install = current_exe.is_relative_to(self.install_dir.resolve())
+                except Exception:
+                    pass
+
+                if is_running_from_install:
+                    # NEVER delete backup_dir here! Deleting backup_dir when executing inside
+                    # an uncommitted or failed installation risks catastrophic data loss.
+                    self._log(
+                        "error",
+                        "Application is executing from within install_dir during uncommitted transaction "
+                        f"({state.value}); cannot safely roll back in-place. Preserving backup directory intact."
+                    )
+                    return InstallationResult(
+                        success=False,
+                        previous_version=prev_version,
+                        rollback_status=RollbackStatus.FAILED,
+                        error_message=(
+                            f"Cannot perform rollback while executing from within target installation directory: {self.install_dir}. "
+                            f"Known-good backup preserved at: {backup_dir}"
+                        ),
+                        install_dir=str(self.install_dir),
+                        backup_dir=str(backup_dir),
+                    )
+
                 # Remove incomplete install_dir if present
                 if self.install_dir.is_dir():
                     self._safe_rmtree(self.install_dir)
@@ -454,12 +652,19 @@ class UpdateInstaller:
         # 6. Application Restart and Genuine Startup Validation
         restarted = False
         if restart_after:
-            self._log("info", "Restarting newly installed Kya-Ray application...")
+            self._log("info", "Transitioning to VALIDATING state and restarting application...")
+            self._record_transaction(
+                tx_id, TransactionState.VALIDATING, prev_version, target_version, backup_dir, staging_dir
+            )
             startup_ok, start_err = self._restart_and_validate(target_version=target_version)
             if not startup_ok:
                 self._log("error", f"Post-update startup validation failed: {start_err}. Initiating rollback...")
+                self._record_transaction(
+                    tx_id, TransactionState.ROLLED_BACK, prev_version, target_version, backup_dir, staging_dir
+                )
                 rb_status = self._rollback(backup_dir, preserved_env_path, prev_version)
                 self._safe_rmtree(staging_dir)
+                self._clear_transaction()
                 return InstallationResult(
                     success=False,
                     previous_version=prev_version,
@@ -471,6 +676,9 @@ class UpdateInstaller:
             restarted = True
 
         # 7. Commit Transaction and Cleanup
+        self._record_transaction(
+            tx_id, TransactionState.COMMITTED, prev_version, target_version, backup_dir, staging_dir
+        )
         self._log("info", f"Update to {target_version} verified and committed successfully.")
         self._safe_rmtree(staging_dir)
         self._safe_rmtree(backup_dir)
