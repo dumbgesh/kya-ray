@@ -9,6 +9,7 @@ Responsibilities:
 3. Coordinates manual intent changes from the UI back into the orchestrator.
 """
 
+import os
 import signal
 import sys
 from typing import Optional
@@ -366,23 +367,26 @@ def main():
 
     setup_safe_logging()
 
-    # Recover any incomplete update transaction from a prior interrupted update
-    try:
-        from desktop.updater.installer import UpdateInstaller
-        from desktop.updater.models import RollbackStatus
-        installer = UpdateInstaller()
-        recovery_result = installer.recover_interrupted_transaction()
-        if recovery_result and recovery_result.rollback_status == RollbackStatus.FAILED:
-            print(
-                f"[FATAL] Update transaction recovery failed: {recovery_result.error_message}\n"
-                "The installation directory may be incomplete. Halting startup for safety.",
-                file=sys.stderr,
-                flush=True,
-            )
+    # Recover any incomplete update transaction from a prior interrupted update.
+    # If this instance was launched to perform post-update handshake validation,
+    # the parent installer process actively manages this transaction; skip recovery.
+    if not os.environ.get("KYA_RAY_HANDSHAKE_FILE"):
+        try:
+            from desktop.updater.installer import UpdateInstaller
+            from desktop.updater.models import RollbackStatus
+            installer = UpdateInstaller()
+            recovery_result = installer.recover_interrupted_transaction()
+            if recovery_result and recovery_result.rollback_status == RollbackStatus.FAILED:
+                print(
+                    f"[FATAL] Update transaction recovery failed: {recovery_result.error_message}\n"
+                    "The installation directory may be incomplete. Halting startup for safety.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                sys.exit(1)
+        except Exception as e:
+            print(f"[FATAL] Error during update transaction recovery check: {e}", file=sys.stderr, flush=True)
             sys.exit(1)
-    except Exception as e:
-        print(f"[FATAL] Error during update transaction recovery check: {e}", file=sys.stderr, flush=True)
-        sys.exit(1)
 
     app = KyaRayApplication()
     sys.exit(app.run())
