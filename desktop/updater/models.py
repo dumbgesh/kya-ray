@@ -130,6 +130,7 @@ class TransactionState(str, Enum):
     BACKUP_CREATED = "backup_created"
     INSTALLING = "installing"
     INSTALLED = "installed"
+    VALIDATING = "validating"
     COMMITTED = "committed"
     ROLLED_BACK = "rolled_back"
     FAILED = "failed"
@@ -167,6 +168,8 @@ class TransactionRecord:
     staging_dir: str
     preserve_env: bool = True
     timestamp: float = 0.0
+    installer_pid: Optional[int] = None
+    installer_start_time: Optional[int] = None
 
 
 
