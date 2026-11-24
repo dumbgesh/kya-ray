@@ -4,6 +4,24 @@ All notable changes to the Kya-Ray desktop application are documented in this fi
 
 ---
 
+## [1.0.0-beta.4] - 2026-11-24
+
+### What's new
+- **Transactional update validation**: Added a dedicated `VALIDATING` transaction state ensuring the newly installed application completes startup handshake validation before transaction commitment.
+- **Fail-safe update recovery**: Protected transaction recovery against race conditions during post-update handshake validation.
+- **PID reuse and directory lock protection**: Added 64-bit Windows process start-time verification to guard against PID reuse, and prevented in-place rollback while executing within the installation directory.
+
+### Improvements
+- Resolved release-blocking post-update startup failure ("no Qt platform plugin could be initialized").
+- Hardened backup lifecycle to guarantee known-good rollback files are preserved until validation succeeds.
+- Added comprehensive unit and end-to-end regression suites for installer process lifecycle.
+
+### Notes
+- This is a beta release. You may encounter bugs.
+- A free Groq API key is required for AI features.
+
+---
+
 ## [1.0.0-beta.3] - 2026-11-20
 
 ### What's new
